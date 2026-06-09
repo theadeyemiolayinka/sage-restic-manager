@@ -24,6 +24,20 @@ Sage Restic Manager wraps Restic in an ergonomic interface that handles the oper
 - Restic >= 0.16 installed and available on PATH
 - A running OS secret service (GNOME Keyring, KDE Wallet, or KeepassXC) for secure credential storage
 
+### Install with curl (recommended)
+
+The one-line installer detects your platform, downloads the correct binary, verifies the SHA256 checksum, and installs to `/usr/local/bin` (or `~/.local/bin` if root is unavailable):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theadeyemiolayinka/sage-restic-manager/main/install.sh | bash
+```
+
+Install a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theadeyemiolayinka/sage-restic-manager/main/install.sh | bash -s -- v0.1.1
+```
+
 ### Build from Source
 
 ```bash

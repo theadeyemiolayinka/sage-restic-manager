@@ -18,6 +18,29 @@ restic version
 
 ## Installation
 
+### Install with curl (recommended)
+
+The one-line installer detects your platform, downloads the correct release binary, verifies the SHA256 checksum, and installs to `/usr/local/bin` (or `~/.local/bin` if the directory is not writable):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theadeyemiolayinka/sage-restic-manager/main/install.sh | bash
+```
+
+Install a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/theadeyemiolayinka/sage-restic-manager/main/install.sh | bash -s -- v0.1.1
+```
+
+**How it works:**
+
+1. Detects your OS and architecture (Linux x86_64/aarch64, macOS x86_64/aarch64)
+2. Fetches the latest release metadata from GitHub (or uses the version you specify)
+3. Downloads the binary and its SHA256 checksum
+4. Verifies the checksum
+5. Installs the binary with `755` permissions
+6. Warns if the target directory is not on your PATH
+
 ### Build from Source
 
 Clone the repository and build the release binary:
