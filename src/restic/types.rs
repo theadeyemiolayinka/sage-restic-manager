@@ -19,10 +19,6 @@ impl Snapshot {
         self.paths.join(", ")
     }
 
-    pub fn display_tags(&self) -> String {
-        self.tags.as_deref().unwrap_or(&[]).join(", ")
-    }
-
     pub fn age_description(&self) -> String {
         let now = Utc::now();
         let diff = now.signed_duration_since(self.time);
@@ -77,7 +73,3 @@ pub struct ResticCheckResult {
     pub output: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResticVersion {
-    pub version: String,
-}

@@ -37,6 +37,8 @@ impl Updater {
     pub fn new(channel: UpdateChannel) -> Self {
         let client = Client::builder()
             .user_agent(format!("sage-restic-manager/{}", CURRENT_VERSION))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(120))
             .build()
             .unwrap();
         Self { client, channel }
@@ -136,7 +138,7 @@ impl Updater {
 
         tokio::fs::rename(&temp_path, &current_exe).await
             .map_err(|e| {
-                let _ = tokio::fs::rename(&backup_path, &current_exe);
+                let _ = std::fs::rename(&backup_path, &current_exe);
                 AppError::Update(format!("Failed to replace binary: {}", e))
             })?;
 

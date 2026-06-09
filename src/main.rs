@@ -15,10 +15,15 @@ use tracing_subscriber::EnvFilter;
 use cli::{Cli, Commands};
 use config::{AppConfig, SchedulesConfig, SourcesConfig};
 use error::Result;
+use config::set_config_dir_override;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if let Some(dir) = cli.config_dir.clone() {
+        set_config_dir_override(dir);
+    }
 
     let log_level = std::env::var("SRM_LOG").unwrap_or_else(|_| cli.log_level.clone());
 
@@ -157,7 +162,24 @@ async fn main() -> Result<()> {
         Some(Commands::Logs { lines }) => {
             let log_dir = config::log_dir()?;
             println!("Log directory: {}", log_dir.display());
-            println!("Use 'journalctl -u sage-restic-manager' for systemd logs.");
+            println!("Showing last {} lines via journalctl:", lines);
+            let output = tokio::process::Command::new("journalctl")
+                .arg("-u")
+                .arg("sage-restic-manager")
+                .arg("-n")
+                .arg(lines.to_string())
+                .arg("--no-pager")
+                .output()
+                .await;
+            match output {
+                Ok(out) => {
+                    print!("{}", String::from_utf8_lossy(&out.stdout));
+                    if !out.stderr.is_empty() {
+                        eprint!("{}", String::from_utf8_lossy(&out.stderr));
+                    }
+                }
+                Err(e) => eprintln!("journalctl unavailable: {}", e),
+            }
         }
     }
 

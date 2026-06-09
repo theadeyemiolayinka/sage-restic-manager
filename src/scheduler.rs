@@ -64,26 +64,28 @@ impl SystemdScheduler {
 
     pub async fn next_trigger_time() -> Option<String> {
         let output = Command::new("systemctl")
-            .arg("list-timers")
+            .arg("show")
             .arg(format!("{}.timer", SERVICE_NAME))
-            .arg("--no-legend")
+            .arg("--property=NextElapseUSecRealtime")
             .output()
             .await
             .ok()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let line = stdout.lines().next()?;
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 {
-            Some(format!("{} {}", parts[0], parts[1]))
-        } else {
-            None
+        let value = stdout.trim().strip_prefix("NextElapseUSecRealtime=")?.trim();
+        if value.is_empty() || value == "0" || value == "infinity" {
+            return None;
         }
+        Some(value.to_string())
     }
 
     pub fn generate_service_content(binary_path: &str) -> String {
+        let user = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_else(|_| "root".into());
         format!(
-            "[Unit]\nDescription=sage-restic-manager backup job\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart={} backup --non-interactive\nStandardOutput=journal\nStandardError=journal\nUser=root\n",
-            binary_path
+            "[Unit]\nDescription=sage-restic-manager backup job\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart={} backup --non-interactive\nStandardOutput=journal\nStandardError=journal\nUser={}\n",
+            binary_path,
+            user
         )
     }
 
@@ -100,11 +102,17 @@ async fn systemctl_run(args: &[&str]) -> Result<()> {
     let output = Command::new("systemctl")
         .args(args)
         .output()
-        .await?;
+        .await
+        .map_err(|e| AppError::Config(format!("systemctl not found or failed to start: {}", e)))?;
     if output.status.success() {
         Ok(())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        Err(AppError::PermissionDenied(format!("systemctl failed: {}", stderr)))
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let code = output.status.code().unwrap_or(-1);
+        if code == 1 && (stderr.contains("Access denied") || stderr.contains("not permitted")) {
+            Err(AppError::PermissionDenied(format!("systemctl: {}", stderr)))
+        } else {
+            Err(AppError::Config(format!("systemctl {} failed (exit {}): {}", args.join(" "), code, stderr)))
+        }
     }
 }

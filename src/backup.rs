@@ -58,6 +58,7 @@ pub async fn run_backup(config: &AppConfig, sources: &mut SourcesConfig) -> Resu
             ProgressEvent::RawLine(line) => {
                 info!("restic: {}", line);
             }
+            ProgressEvent::BackupPid(_) => {}
             ProgressEvent::Finished => {
                 info!("Backup process finished");
             }
@@ -66,18 +67,29 @@ pub async fn run_backup(config: &AppConfig, sources: &mut SourcesConfig) -> Resu
 
     let result = client_task.await.map_err(|e| AppError::Config(e.to_string()))?;
 
-    if let Some(snap_id) = snapshot_id {
-        let now = chrono::Utc::now();
-        for source in sources.sources.iter_mut() {
-            if source.state == SourceState::Selected {
-                source.last_backup = Some(now);
-                source.last_snapshot_id = Some(snap_id.clone());
-                source.last_backup_status = Some(crate::config::sources::BackupStatus::Success);
+    let now = chrono::Utc::now();
+    match (&result, &snapshot_id) {
+        (Ok(_), Some(snap_id)) => {
+            for source in sources.sources.iter_mut() {
+                if source.state == SourceState::Selected {
+                    source.last_backup = Some(now);
+                    source.last_snapshot_id = Some(snap_id.clone());
+                    source.last_backup_status = Some(crate::config::sources::BackupStatus::Success);
+                }
             }
+            sources.save()?;
+            info!("Snapshot created: {}", snap_id);
         }
-        sources.save()?;
-        info!("Snapshot created: {}", snap_id);
+        (Err(_), _) | (Ok(_), None) => {
+            for source in sources.sources.iter_mut() {
+                if source.state == SourceState::Selected {
+                    source.last_backup = Some(now);
+                    source.last_backup_status = Some(crate::config::sources::BackupStatus::Failed);
+                }
+            }
+            let _ = sources.save();
+        }
     }
 
-    result
+    result.map(|_| ())
 }

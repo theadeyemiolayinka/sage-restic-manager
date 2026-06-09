@@ -1,3 +1,6 @@
+use chrono::Utc;
+#[cfg(unix)]
+use libc;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use std::path::PathBuf;
@@ -14,10 +17,16 @@ pub fn handle_key(state: &mut AppState, key: KeyEvent) -> bool {
         AppMode::Input { prompt, mut input, action } => {
             handle_input(state, key, prompt, input, action)
         }
-        AppMode::Loading { .. } => false,
         AppMode::BackupRunning { .. } => {
             if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
-                state.push_log(LogLevel::Warning, "Backup interrupt requested".into());
+                if let Some(pid) = state.backup_child_pid {
+                    #[cfg(unix)]
+                    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM); }
+                    state.push_log(LogLevel::Warning, format!("Sent SIGTERM to backup process (pid {})", pid));
+                    state.set_status("Backup interrupt sent".into(), true);
+                } else {
+                    state.push_log(LogLevel::Warning, "Backup interrupt requested but pid unknown".into());
+                }
             }
             false
         }
@@ -128,6 +137,9 @@ fn handle_sources_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char(' ') => {
             toggle_source_at_cursor(state);
         }
+        KeyCode::Char('a') => {
+            approve_source(state);
+        }
         KeyCode::Char('i') => {
             ignore_source(state);
         }
@@ -156,6 +168,9 @@ fn handle_sources_key(state: &mut AppState, key: KeyEvent) {
                 input: String::new(),
                 action: InputAction::AddFlatPath,
             };
+        }
+        KeyCode::Char('b') if !inside_container => {
+            trigger_backup(state);
         }
         _ => {}
     }
@@ -309,6 +324,33 @@ fn ignore_source(state: &mut AppState) {
     }
 }
 
+fn approve_source(state: &mut AppState) {
+    let idx = state.sources_selected_index;
+    let filtered_paths: Vec<PathBuf> = state.filtered_sources()
+        .iter()
+        .map(|s| s.path.clone())
+        .collect();
+
+    if let Some(path) = filtered_paths.get(idx) {
+        let path = path.clone();
+        let log_msg = if let Some(source) = state.sources_config.find_by_path_mut(&path) {
+            if source.state == SourceState::Unapproved {
+                source.state = SourceState::Selected;
+                Some(format!("Approved: {}", source.label))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if let Some(msg) = log_msg {
+            state.push_log(LogLevel::Info, msg);
+        } else {
+            state.set_status("Source is already approved or is a container".into(), false);
+        }
+    }
+}
+
 fn handle_snapshots_key(state: &mut AppState, key: KeyEvent) {
     let len = state.snapshots.len();
     match key.code {
@@ -322,13 +364,97 @@ fn handle_snapshots_key(state: &mut AppState, key: KeyEvent) {
                 state.snapshots_selected_index += 1;
             }
         }
+        KeyCode::Enter => {
+            if let Some(snap) = state.snapshots.get(state.snapshots_selected_index) {
+                state.set_status(
+                    format!("Snapshot {} | {} | {} | {}",
+                        snap.short_id,
+                        snap.time.format("%Y-%m-%d %H:%M"),
+                        snap.hostname,
+                        snap.display_paths()),
+                    false,
+                );
+            }
+        }
+        KeyCode::Char('f') => {
+            if let Some(tx) = state.background_tx.clone() {
+                let config = state.config.clone();
+                state.set_status("Running forget dry-run...".into(), false);
+                tokio::spawn(async move {
+                    let client = crate::restic::ResticClient::new(&config);
+                    match client.forget(&config.retention, true).await {
+                        Ok(results) => {
+                            let kept: usize = results.iter().map(|r| r.keep.len()).sum();
+                            let removed: usize = results.iter().map(|r| r.remove.len()).sum();
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::OperationComplete(
+                                    format!("Forget dry-run: would keep {}, remove {}", kept, removed)
+                                ),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Forget dry-run failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
+        }
         KeyCode::Char('r') => {
-            state.set_status("Refreshing snapshots...".into(), false);
+            refresh_snapshots(state);
         }
         KeyCode::Char('R') => {
             state.navigate_to(Screen::Restore);
         }
         _ => {}
+    }
+}
+
+fn refresh_snapshots(state: &mut AppState) {
+    if let Some(tx) = state.background_tx.clone() {
+        let config = state.config.clone();
+        tokio::spawn(async move {
+            let client = crate::restic::ResticClient::new(&config);
+            match client.snapshots().await {
+                Ok(snaps) => {
+                    let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                        BackgroundEvent::SnapshotsLoaded(snaps),
+                    ));
+                }
+                Err(e) => {
+                    let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                        BackgroundEvent::Error(format!("Snapshot refresh failed: {}", e)),
+                    ));
+                }
+            }
+        });
+        state.set_status("Refreshing snapshots...".into(), false);
+    }
+}
+
+fn refresh_stats(state: &mut AppState) {
+    if let Some(tx) = state.background_tx.clone() {
+        let config = state.config.clone();
+        tokio::spawn(async move {
+            let client = crate::restic::ResticClient::new(&config);
+            match client.stats().await {
+                Ok(stats) => {
+                    let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                        BackgroundEvent::StatsLoaded(stats),
+                    ));
+                }
+                Err(e) => {
+                    let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                        BackgroundEvent::StatsFailed,
+                    ));
+                    let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                        BackgroundEvent::Error(format!("Stats refresh failed: {}", e)),
+                    ));
+                }
+            }
+        });
+        state.set_status("Refreshing repository stats...".into(), false);
     }
 }
 
@@ -338,7 +464,14 @@ fn handle_restore_key(state: &mut AppState, key: KeyEvent) {
             state.mode = AppMode::Input {
                 prompt: "Enter restore target path:".into(),
                 input: state.restore_target_input.clone(),
-                action: InputAction::AddFlatPath,
+                action: InputAction::SetRestoreTargetPath,
+            };
+        }
+        KeyCode::Char('p') => {
+            state.mode = AppMode::Input {
+                prompt: "Enter source path to restore (leave empty to restore full snapshot):".into(),
+                input: state.restore_path_input.clone(),
+                action: InputAction::SetRestoreSourcePath,
             };
         }
         KeyCode::Enter => {
@@ -346,16 +479,17 @@ fn handle_restore_key(state: &mut AppState, key: KeyEvent) {
                 state.set_status("Set a target path first (press 't')".into(), true);
                 return;
             }
-            if state.snapshots.is_empty() {
-                state.set_status("No snapshot selected".into(), true);
-                return;
-            }
+            let snap = match state.snapshots.get(state.snapshots_selected_index) {
+                Some(s) => s.short_id.clone(),
+                None => {
+                    state.set_status("No snapshot selected".into(), true);
+                    return;
+                }
+            };
             state.mode = AppMode::Confirm {
                 prompt: format!(
                     "Restore snapshot '{}' to '{}'? This will overwrite existing files.",
-                    state.snapshots.get(state.snapshots_selected_index)
-                        .map(|s| s.short_id.clone())
-                        .unwrap_or_default(),
+                    snap,
                     state.restore_target_input,
                 ),
                 confirm_word: "RESTORE".into(),
@@ -369,6 +503,65 @@ fn handle_restore_key(state: &mut AppState, key: KeyEvent) {
 
 fn handle_repository_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
+        KeyCode::Char('i') => {
+            if let Some(tx) = state.background_tx.clone() {
+                let config = state.config.clone();
+                state.set_status("Initialising repository...".into(), false);
+                tokio::spawn(async move {
+                    let client = crate::restic::ResticClient::new(&config);
+                    match client.init().await {
+                        Ok(out) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::OperationComplete(format!("Repository initialised: {}", out.lines().next().unwrap_or("ok"))),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Init failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
+        }
+        KeyCode::Char('c') => {
+            if let Some(tx) = state.background_tx.clone() {
+                let config = state.config.clone();
+                state.set_status("Checking repository...".into(), false);
+                tokio::spawn(async move {
+                    let client = crate::restic::ResticClient::new(&config);
+                    match client.check(false).await {
+                        Ok(result) => {
+                            let msg = if result.ok {
+                                "Repository check passed".into()
+                            } else {
+                                format!("Repository check FAILED: {}", result.output.lines().next().unwrap_or(""))
+                            };
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::OperationComplete(msg),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Check failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
+        }
+        KeyCode::Char('b') => {
+            state.navigate_to(Screen::Sources);
+            state.set_status("Select sources then press Enter to start backup".into(), false);
+        }
+        KeyCode::Char('f') => {
+            state.mode = AppMode::Confirm {
+                prompt: "This will forget snapshots per retention policy, then prune. Type FORGET to confirm:".into(),
+                confirm_word: "FORGET".into(),
+                input: String::new(),
+                action: ConfirmAction::ForgetWithPrune,
+            };
+        }
         KeyCode::Char('p') => {
             state.mode = AppMode::Confirm {
                 prompt: "This will permanently prune unreferenced data from the repository.".into(),
@@ -377,8 +570,12 @@ fn handle_repository_key(state: &mut AppState, key: KeyEvent) {
                 action: ConfirmAction::Prune,
             };
         }
+        KeyCode::Char('e') => {
+            state.navigate_to(Screen::Settings);
+            state.set_status("Edit configuration in Settings".into(), false);
+        }
         KeyCode::Char('r') => {
-            state.set_status("Refreshing repository stats...".into(), false);
+            refresh_stats(state);
         }
         _ => {}
     }
@@ -386,6 +583,95 @@ fn handle_repository_key(state: &mut AppState, key: KeyEvent) {
 
 fn handle_scheduler_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
+        KeyCode::Char('e') => {
+            if let Some(tx) = state.background_tx.clone() {
+                state.set_status("Enabling timer...".into(), false);
+                tokio::spawn(async move {
+                    match crate::scheduler::SystemdScheduler::enable().await {
+                        Ok(()) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::OperationComplete("Timer enabled".into()),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Enable failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
+        }
+        KeyCode::Char('d') => {
+            if let Some(tx) = state.background_tx.clone() {
+                state.set_status("Disabling timer...".into(), false);
+                tokio::spawn(async move {
+                    match crate::scheduler::SystemdScheduler::disable().await {
+                        Ok(()) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::OperationComplete("Timer disabled".into()),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Disable failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
+        }
+        KeyCode::Char('i') => {
+            if let Some(tx) = state.background_tx.clone() {
+                let binary = std::env::current_exe()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|_| "sage-restic-manager".into());
+                let sched = state.schedules_config.active_schedule().cloned()
+                    .unwrap_or_default();
+                state.set_status("Installing systemd units...".into(), false);
+                tokio::spawn(async move {
+                    match crate::scheduler::SystemdScheduler::install(&sched, &binary).await {
+                        Ok(()) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::OperationComplete("Systemd units installed".into()),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Install failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
+        }
+        KeyCode::Char('f') => {
+            state.mode = AppMode::Input {
+                prompt: "Enter schedule frequency: daily / weekly / twiceweekly / custom:".into(),
+                input: String::new(),
+                action: InputAction::EditScheduleCalendar,
+            };
+        }
+        KeyCode::Char('s') => {
+            if let Some(tx) = state.background_tx.clone() {
+                state.set_status("Fetching systemctl status...".into(), false);
+                tokio::spawn(async move {
+                    match crate::scheduler::SystemdScheduler::status().await {
+                        Ok(output) => {
+                            let summary = output.lines().next().unwrap_or("(no output)").to_string();
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::OperationComplete(format!("Status: {}", summary)),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Status failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
+        }
         KeyCode::Char('c') => {
             state.mode = AppMode::Input {
                 prompt: "Enter systemd OnCalendar expression (e.g. Mon,Thu 02:00:00):".into(),
@@ -403,21 +689,39 @@ fn handle_logs_key(state: &mut AppState, key: KeyEvent) {
     let len = state.log_entries.len();
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
-            state.log_offset = state.log_offset.saturating_add(1).min(len.saturating_sub(1));
-        }
-        KeyCode::Down | KeyCode::Char('j') => {
             state.log_offset = state.log_offset.saturating_sub(1);
         }
+        KeyCode::Down | KeyCode::Char('j') => {
+            state.log_offset = state.log_offset.saturating_add(1).min(len.saturating_sub(1));
+        }
         KeyCode::Char('g') => {
-            state.log_offset = len.saturating_sub(1);
+            state.log_offset = 0;
         }
         KeyCode::Char('G') => {
-            state.log_offset = 0;
+            state.log_offset = len.saturating_sub(1);
         }
         KeyCode::Char('c') => {
             state.log_entries.clear();
             state.log_offset = 0;
             state.set_status("Logs cleared".into(), false);
+        }
+        KeyCode::Char('e') => {
+            let log_dir = match crate::config::log_dir() {
+                Ok(d) => d,
+                Err(e) => {
+                    state.set_status(format!("Cannot resolve log dir: {}", e), true);
+                    return;
+                }
+            };
+            let filename = format!("sage-logs-{}.txt", Utc::now().format("%Y%m%dT%H%M%SZ"));
+            let export_path = log_dir.join(&filename);
+            let lines: Vec<String> = state.log_entries.iter()
+                .map(|e| format!("[{}] [{:?}] {}", e.timestamp.format("%Y-%m-%dT%H:%M:%SZ"), e.level, e.message))
+                .collect();
+            match std::fs::write(&export_path, lines.join("\n")) {
+                Ok(()) => state.set_status(format!("Logs exported to {}", export_path.display()), false),
+                Err(e) => state.set_status(format!("Export failed: {}", e), true),
+            }
         }
         _ => {}
     }
@@ -462,10 +766,63 @@ fn settings_entry_action(idx: usize) -> (String, Option<InputAction>) {
 
 fn handle_dashboard_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
+        KeyCode::Char('b') => {
+            trigger_backup(state);
+        }
         KeyCode::Char('r') => {
-            state.set_status("Refreshing...".into(), false);
+            refresh_stats(state);
+            refresh_snapshots(state);
         }
         _ => {}
+    }
+}
+
+fn trigger_backup(state: &mut AppState) {
+    let selected = state.sources_config.selected_paths();
+    if selected.is_empty() {
+        state.set_status("No sources selected. Go to Sources and approve/select paths first.".into(), true);
+        return;
+    }
+    if let Some(tx) = state.background_tx.clone() {
+        let config = state.config.clone();
+        let sources = state.sources_config.clone();
+        state.mode = AppMode::BackupRunning { progress: "Starting...".into() };
+        state.set_status(format!("Backup started ({} sources)", selected.len()), false);
+        tokio::spawn(async move {
+            let client = crate::restic::ResticClient::new(&config);
+            if !client.is_available().await {
+                let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                    BackgroundEvent::Error("restic binary not found".into()),
+                ));
+                return;
+            }
+            let tags = vec!["sage-restic-manager".to_string()];
+            let exclude_patterns: Vec<String> = sources.selected_sources()
+                .iter()
+                .flat_map(|s| s.exclude_patterns.clone())
+                .collect();
+            let (prog_tx, mut prog_rx) = tokio::sync::mpsc::channel(128);
+            let tx2 = tx.clone();
+            tokio::spawn(async move {
+                while let Some(ev) = prog_rx.recv().await {
+                    let _ = tx2.send(crate::tui::event::Event::BackgroundTask(
+                        BackgroundEvent::BackupProgress(ev),
+                    ));
+                }
+            });
+            match client.backup_with_progress(&selected, &tags, &exclude_patterns, prog_tx).await {
+                Ok(_) => {
+                    let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                        BackgroundEvent::OperationComplete("Backup complete".into()),
+                    ));
+                }
+                Err(e) => {
+                    let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                        BackgroundEvent::Error(format!("Backup failed: {}", e)),
+                    ));
+                }
+            }
+        });
     }
 }
 
@@ -504,21 +861,105 @@ fn handle_confirm(
 fn execute_confirm_action(state: &mut AppState, action: ConfirmAction) {
     match action {
         ConfirmAction::Prune => {
-            state.push_log(LogLevel::Info, "Prune operation initiated".into());
-            state.set_status("Prune initiated (see logs)".into(), false);
+            if let Some(tx) = state.background_tx.clone() {
+                let config = state.config.clone();
+                state.push_log(LogLevel::Info, "Prune started".into());
+                state.set_status("Pruning...".into(), false);
+                tokio::spawn(async move {
+                    let client = crate::restic::ResticClient::new(&config);
+                    match client.prune().await {
+                        Ok(out) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::PruneComplete(out),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Prune failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
         }
         ConfirmAction::Restore => {
-            state.push_log(LogLevel::Info, "Restore operation initiated".into());
-            state.set_status("Restore initiated".into(), false);
+            let snap = match state.snapshots.get(state.snapshots_selected_index) {
+                Some(s) => s.clone(),
+                None => {
+                    state.set_status("No snapshot selected".into(), true);
+                    return;
+                }
+            };
+            let target = state.restore_target_input.clone();
+            let source = if state.restore_path_input.is_empty() {
+                None
+            } else {
+                Some(std::path::PathBuf::from(&state.restore_path_input))
+            };
+            if target.is_empty() {
+                state.set_status("No restore target set".into(), true);
+                return;
+            }
+            if let Some(tx) = state.background_tx.clone() {
+                let config = state.config.clone();
+                state.push_log(LogLevel::Info, format!("Restoring snapshot {} to {}", snap.short_id, target));
+                state.set_status("Restoring...".into(), false);
+                tokio::spawn(async move {
+                    let client = crate::restic::ResticClient::new(&config);
+                    let restore_target = crate::restic::RestoreTarget {
+                        snapshot_id: snap.id.clone(),
+                        source_path: source,
+                        target_path: std::path::PathBuf::from(&target),
+                    };
+                    match client.restore(&restore_target).await {
+                        Ok(out) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::RestoreComplete(out),
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Restore failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
         }
         ConfirmAction::ForgetWithPrune => {
-            state.push_log(LogLevel::Info, "Forget+prune initiated".into());
-        }
-        ConfirmAction::DeleteRepository => {
-            state.push_log(LogLevel::Warning, "Repository deletion initiated".into());
-        }
-        ConfirmAction::SelectMany => {
-            state.push_log(LogLevel::Info, "Bulk selection confirmed".into());
+            if let Some(tx) = state.background_tx.clone() {
+                let config = state.config.clone();
+                state.push_log(LogLevel::Info, "Forget+prune started".into());
+                state.set_status("Running forget + prune...".into(), false);
+                tokio::spawn(async move {
+                    let client = crate::restic::ResticClient::new(&config);
+                    match client.forget(&config.retention, false).await {
+                        Ok(results) => {
+                            let kept: usize = results.iter().map(|r| r.keep.len()).sum();
+                            let removed: usize = results.iter().map(|r| r.remove.len()).sum();
+                            if removed > 0 {
+                                match client.prune().await {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                            BackgroundEvent::Error(format!("Prune after forget failed: {}", e)),
+                                        ));
+                                        return;
+                                    }
+                                }
+                            }
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::ForgetComplete { kept, removed },
+                            ));
+                        }
+                        Err(e) => {
+                            let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                                BackgroundEvent::Error(format!("Forget failed: {}", e)),
+                            ));
+                        }
+                    }
+                });
+            }
         }
     }
 }
@@ -665,6 +1106,10 @@ fn execute_input_action(state: &mut AppState, action: InputAction, value: String
         }
         InputAction::EditScheduleCalendar => {
             if value.is_empty() { return; }
+            if let Err(e) = crate::config::schedules::validate_on_calendar(&value) {
+                state.set_status(format!("Invalid schedule expression: {}", e), true);
+                return;
+            }
             if let Some(sched) = state.schedules_config.schedules.first_mut() {
                 sched.on_calendar = Some(value.clone());
                 sched.frequency = crate::config::ScheduleFrequency::Custom;
@@ -676,6 +1121,18 @@ fn execute_input_action(state: &mut AppState, action: InputAction, value: String
             }
             let _ = state.schedules_config.save();
             state.set_status(format!("OnCalendar set to: {}", value), false);
+        }
+        InputAction::SetRestoreTargetPath => {
+            state.restore_target_input = value.clone();
+            state.set_status(format!("Restore target set to: {}", value), false);
+        }
+        InputAction::SetRestoreSourcePath => {
+            state.restore_path_input = value.clone();
+            if value.is_empty() {
+                state.set_status("Source path cleared (full snapshot will be restored)".into(), false);
+            } else {
+                state.set_status(format!("Restore source path set to: {}", value), false);
+            }
         }
         _ => {}
     }

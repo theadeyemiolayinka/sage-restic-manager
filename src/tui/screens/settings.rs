@@ -63,15 +63,16 @@ fn render_settings_detail(frame: &mut Frame, area: Rect, state: &AppState) {
     let cfg = &state.config;
     let idx = state.settings_selected_index.min(SETTINGS_ITEMS.len().saturating_sub(1));
 
+    let creds = &state.credentials;
     let (label, current_value, description) = match idx {
         0 => ("Repository URL", cfg.repository.url.clone(), "S3-compatible endpoint URL (e.g. https://account.r2.cloudflarestorage.com)"),
         1 => ("Bucket", cfg.repository.bucket.clone(), "Bucket or repository name"),
         2 => ("Region", cfg.repository.region.clone(), "Region (use 'auto' for Cloudflare R2)"),
         3 => ("Access Key ID", {
-            if cfg.repository.access_key_id.is_empty() { "(not set)".into() }
-            else { format!("{}...", &cfg.repository.access_key_id[..cfg.repository.access_key_id.len().min(8)]) }
+            if creds.access_key_id.is_empty() { "(not set)".into() }
+            else { format!("{}...", &creds.access_key_id[..creds.access_key_id.len().min(8)]) }
         }, "S3 access key ID"),
-        4 => ("Repository Password", if cfg.repository.repository_password.is_empty() { "(not set)".into() } else { "****".into() }, "Restic repository encryption password"),
+        4 => ("Repository Password", if creds.repository_password.is_empty() { "(not set)".into() } else { "****".into() }, "Restic repository encryption password"),
         5 => ("Budget Total", format!("{:.1} GB", cfg.budget.budget_gib()), "Maximum storage budget in gigabytes"),
         6 => ("Budget Warning", format!("{:.1} GB", cfg.budget.warning_gib()), "Warning threshold in gigabytes"),
         7 => ("Budget Critical", format!("{:.1} GB", cfg.budget.critical_gib()), "Critical threshold in gigabytes"),

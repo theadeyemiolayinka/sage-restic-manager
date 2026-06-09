@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use crate::error::{AppError, Result};
 use super::config_dir;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     pub repository: RepositoryConfig,
@@ -34,9 +37,6 @@ pub struct RepositoryConfig {
     pub bucket: String,
     pub region: String,
     pub endpoint: Option<String>,
-    pub access_key_id: String,
-    pub secret_access_key: String,
-    pub repository_password: String,
     pub path: String,
 }
 
@@ -48,9 +48,6 @@ impl Default for RepositoryConfig {
             bucket: String::new(),
             region: "auto".into(),
             endpoint: None,
-            access_key_id: String::new(),
-            secret_access_key: String::new(),
-            repository_password: String::new(),
             path: "/backups".into(),
         }
     }
@@ -173,17 +170,24 @@ impl AppConfig {
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
         let content = toml::to_string_pretty(self).map_err(AppError::from)?;
-        std::fs::write(path, content)?;
+        atomic_write_restricted(&path, content.as_bytes())?;
         Ok(())
     }
 
-    pub fn restic_env(&self) -> Vec<(String, String)> {
+    pub fn backend_env(&self, creds: &super::credentials::CredentialsConfig) -> Vec<(String, String)> {
         let mut env = Vec::new();
-        env.push(("RESTIC_PASSWORD".into(), self.repository.repository_password.clone()));
-        env.push(("AWS_ACCESS_KEY_ID".into(), self.repository.access_key_id.clone()));
-        env.push(("AWS_SECRET_ACCESS_KEY".into(), self.repository.secret_access_key.clone()));
-        if let Some(ep) = &self.repository.endpoint {
-            env.push(("RESTIC_REST_URL".into(), ep.clone()));
+        match self.repository.backend {
+            RepositoryBackend::B2 => {
+                env.push(("B2_ACCOUNT_ID".into(), creds.access_key_id.clone()));
+                env.push(("B2_ACCOUNT_KEY".into(), creds.secret_access_key.clone()));
+            }
+            _ => {
+                env.push(("AWS_ACCESS_KEY_ID".into(), creds.access_key_id.clone()));
+                env.push(("AWS_SECRET_ACCESS_KEY".into(), creds.secret_access_key.clone()));
+                if let Some(ep) = &self.repository.endpoint {
+                    env.push(("AWS_ENDPOINT_URL_S3".into(), ep.clone()));
+                }
+            }
         }
         env
     }
@@ -198,4 +202,16 @@ impl AppConfig {
             }
         }
     }
+}
+
+pub(crate) fn atomic_write_restricted(path: &std::path::Path, data: &[u8]) -> Result<()> {
+    let dir = path.parent().ok_or_else(|| AppError::Config("Config path has no parent directory".into()))?;
+    let tmp = tempfile::NamedTempFile::new_in(dir)?;
+    #[cfg(unix)]
+    {
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::write(tmp.path(), data)?;
+    tmp.persist(path).map_err(|e| AppError::Io(e.error))?;
+    Ok(())
 }

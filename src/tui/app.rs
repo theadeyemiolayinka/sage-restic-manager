@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
 
-use crate::config::{AppConfig, BackupSource, SchedulesConfig, SourceKind, SourcesConfig};
+use crate::config::{AppConfig, BackupSource, CredentialsConfig, SchedulesConfig, SourceKind, SourcesConfig};
 use crate::restic::{ResticStats, Snapshot};
 use crate::tui::event::BackgroundEvent;
 
@@ -67,15 +67,12 @@ pub enum AppMode {
     Normal,
     Confirm { prompt: String, confirm_word: String, input: String, action: ConfirmAction },
     Input { prompt: String, input: String, action: InputAction },
-    Loading { message: String },
     BackupRunning { progress: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfirmAction {
     Prune,
-    DeleteRepository,
-    SelectMany,
     Restore,
     ForgetWithPrune,
 }
@@ -90,6 +87,8 @@ pub enum InputAction {
     SetBudgetWarning,
     SetBudgetCritical,
     EditScheduleCalendar,
+    SetRestoreTargetPath,
+    SetRestoreSourcePath,
 }
 
 pub struct LogEntry {
@@ -156,6 +155,8 @@ pub struct AppState {
     pub next_backup_time: Option<String>,
 
     pub background_tx: Option<mpsc::UnboundedSender<crate::tui::event::Event>>,
+    pub backup_child_pid: Option<u32>,
+    pub credentials: CredentialsConfig,
 }
 
 impl AppState {
@@ -193,6 +194,8 @@ impl AppState {
             last_backup_time: None,
             next_backup_time: None,
             background_tx: None,
+            backup_child_pid: None,
+            credentials: CredentialsConfig::load().unwrap_or_default(),
         }
     }
 
@@ -222,6 +225,18 @@ impl AppState {
         });
         if self.log_entries.len() > MAX_LOG_LINES {
             self.log_entries.pop_front();
+        }
+    }
+
+    pub fn refresh_scheduler_status(&self) {
+        if let Some(tx) = self.background_tx.clone() {
+            tokio::spawn(async move {
+                let active = crate::scheduler::SystemdScheduler::is_active().await;
+                let next_time = crate::scheduler::SystemdScheduler::next_trigger_time().await;
+                let _ = tx.send(crate::tui::event::Event::BackgroundTask(
+                    crate::tui::event::BackgroundEvent::SchedulerStatus { active, next_time },
+                ));
+            });
         }
     }
 
@@ -329,6 +344,9 @@ impl AppState {
             BackgroundEvent::BackupProgress(progress) => {
                 use crate::restic::ProgressEvent;
                 match &progress {
+                    ProgressEvent::BackupPid(pid) => {
+                        self.backup_child_pid = Some(*pid);
+                    }
                     ProgressEvent::BackupSummary(p) => {
                         self.mode = AppMode::Normal;
                         self.push_log(LogLevel::Info, format!("Backup complete: {}", p.display_progress()));
@@ -344,12 +362,35 @@ impl AppState {
                         self.push_log(LogLevel::Error, format!("Backup error: {}", e));
                     }
                     ProgressEvent::Finished => {
+                        self.backup_child_pid = None;
                         self.mode = AppMode::Normal;
                     }
                     ProgressEvent::RawLine(line) => {
                         self.push_log(LogLevel::Debug, line.clone());
                     }
                 }
+            }
+            BackgroundEvent::StatsFailed => {
+                self.repo_reachable = Some(false);
+            }
+            BackgroundEvent::SchedulerStatus { active, next_time } => {
+                self.scheduler_active = active;
+                self.next_backup_time = next_time;
+            }
+            BackgroundEvent::PruneComplete(output) => {
+                self.mode = AppMode::Normal;
+                self.push_log(LogLevel::Info, format!("Prune complete: {}", output));
+                self.set_status("Prune complete".into(), false);
+            }
+            BackgroundEvent::ForgetComplete { kept, removed } => {
+                self.mode = AppMode::Normal;
+                self.push_log(LogLevel::Info, format!("Forget complete: {} kept, {} removed", kept, removed));
+                self.set_status(format!("Forget complete: {} removed", removed), false);
+            }
+            BackgroundEvent::RestoreComplete(output) => {
+                self.mode = AppMode::Normal;
+                self.push_log(LogLevel::Info, format!("Restore complete: {}", output));
+                self.set_status("Restore complete".into(), false);
             }
             BackgroundEvent::Error(msg) => {
                 self.push_log(LogLevel::Error, msg.clone());

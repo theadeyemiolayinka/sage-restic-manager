@@ -27,6 +27,8 @@ pub async fn run(mut app: App) -> crate::error::Result<()> {
 
     trigger_initial_tasks(&app, &event_tx).await;
 
+    let mut tick_count: u64 = 0;
+
     loop {
         terminal.terminal.draw(|f| render(f, &app))?;
 
@@ -38,6 +40,10 @@ pub async fn run(mut app: App) -> crate::error::Result<()> {
                 Event::Resize(_, _) => {}
                 Event::Tick => {
                     app.state.clear_status();
+                    tick_count += 1;
+                    if tick_count % 240 == 0 {
+                        app.state.refresh_scheduler_status();
+                    }
                 }
                 Event::BackgroundTask(bg) => {
                     app.state.handle_background_event(bg);
@@ -51,33 +57,44 @@ pub async fn run(mut app: App) -> crate::error::Result<()> {
         }
     }
 
+    events.shutdown();
     TerminalManager::restore()?;
     Ok(())
 }
 
 async fn trigger_initial_tasks(app: &App, tx: &mpsc::UnboundedSender<Event>) {
-    let tx = tx.clone();
+    let tx_docker = tx.clone();
     let docker_path = app.state.sources_config.effective_docker_path();
     tokio::spawn(async move {
         use crate::discovery::{DockerDiscoveryResult, VolumeDiscovery};
         match VolumeDiscovery::discover_docker_volumes(&docker_path).await {
             DockerDiscoveryResult::Found { container, children } => {
-                let _ = tx.send(Event::BackgroundTask(BackgroundEvent::DockerDiscoveryFound {
+                let _ = tx_docker.send(Event::BackgroundTask(BackgroundEvent::DockerDiscoveryFound {
                     container,
                     children,
                 }));
             }
             DockerDiscoveryResult::PathNotFound { searched } => {
-                let _ = tx.send(Event::BackgroundTask(BackgroundEvent::DockerPathMissing {
+                let _ = tx_docker.send(Event::BackgroundTask(BackgroundEvent::DockerPathMissing {
                     searched,
                 }));
             }
             DockerDiscoveryResult::PermissionDenied { path } => {
-                let _ = tx.send(Event::BackgroundTask(BackgroundEvent::Error(
+                let _ = tx_docker.send(Event::BackgroundTask(BackgroundEvent::Error(
                     format!("Permission denied reading Docker volumes path: {}", path.display()),
                 )));
             }
         }
+    });
+
+    let tx_sched = tx.clone();
+    tokio::spawn(async move {
+        let active = crate::scheduler::SystemdScheduler::is_active().await;
+        let next_time = crate::scheduler::SystemdScheduler::next_trigger_time().await;
+        let _ = tx_sched.send(Event::BackgroundTask(BackgroundEvent::SchedulerStatus {
+            active,
+            next_time,
+        }));
     });
 }
 
@@ -124,9 +141,6 @@ fn render(frame: &mut Frame, app: &App) {
         }
         AppMode::Input { prompt, input, .. } => {
             render_input_dialog(frame, prompt, input);
-        }
-        AppMode::Loading { message } => {
-            render_loading_overlay(frame, message);
         }
         AppMode::BackupRunning { progress } => {
             render_loading_overlay(frame, &format!("Backup running: {}", progress));

@@ -25,6 +25,7 @@ pub struct BackupProgress {
 pub enum ProgressEvent {
     BackupStatus(BackupProgress),
     BackupSummary(BackupProgress),
+    BackupPid(u32),
     RawLine(String),
     Error(String),
     Finished,

@@ -29,8 +29,9 @@ fn render_repo_config(frame: &mut Frame, area: Rect, state: &AppState) {
     let backend_str = cfg.backend.to_string();
     let url_display = if cfg.url.is_empty() { "(not set)".into() } else { cfg.url.clone() };
     let bucket_display = if cfg.bucket.is_empty() { "(not set)".into() } else { cfg.bucket.clone() };
-    let key_display = if cfg.access_key_id.is_empty() { "(not set)".into() } else { format!("{}...", &cfg.access_key_id[..cfg.access_key_id.len().min(8)]) };
-    let password_display: String = if cfg.repository_password.is_empty() { "(not set)".into() } else { "****".into() };
+    let creds = &state.credentials;
+    let key_display = if creds.access_key_id.is_empty() { "(not set)".into() } else { format!("{}...", &creds.access_key_id[..creds.access_key_id.len().min(8)]) };
+    let password_display: String = if creds.repository_password.is_empty() { "(not set)".into() } else { "****".into() };
 
     let endpoint_display = cfg.endpoint.as_deref().unwrap_or("(default)").to_string();
 
@@ -91,7 +92,7 @@ fn render_repo_actions(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled("c", Theme::header()),
             Span::styled(": check repository  ", Theme::dim()),
             Span::styled("f", Theme::header()),
-            Span::styled(": forget (dry-run)  ", Theme::dim()),
+            Span::styled(": forget+prune  ", Theme::dim()),
             Span::styled("p", Theme::header()),
             Span::styled(": prune (type PRUNE)", Theme::dim()),
         ]),

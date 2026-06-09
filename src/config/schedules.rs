@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use crate::error::{AppError, Result};
 use super::config_dir;
+use super::app::atomic_write_restricted;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SchedulesConfig {
@@ -29,13 +30,18 @@ impl SchedulesConfig {
         }
         let content = std::fs::read_to_string(&path)?;
         let config: Self = toml::from_str(&content)?;
+        for sched in &config.schedules {
+            if let Some(cal) = &sched.on_calendar {
+                validate_on_calendar(cal).map_err(|e| AppError::Config(format!("Invalid on_calendar in schedules.toml: {}", e)))?;
+            }
+        }
         Ok(config)
     }
 
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
         let content = toml::to_string_pretty(self).map_err(AppError::from)?;
-        std::fs::write(path, content)?;
+        atomic_write_restricted(&path, content.as_bytes())?;
         Ok(())
     }
 
@@ -50,8 +56,6 @@ pub struct ScheduleConfig {
     pub enabled: bool,
     pub frequency: ScheduleFrequency,
     pub on_calendar: Option<String>,
-    pub run_after_boot_sec: Option<u64>,
-    pub run_on_battery: bool,
 }
 
 impl Default for ScheduleConfig {
@@ -61,16 +65,25 @@ impl Default for ScheduleConfig {
             enabled: false,
             frequency: ScheduleFrequency::TwiceWeekly,
             on_calendar: None,
-            run_after_boot_sec: Some(300),
-            run_on_battery: true,
         }
     }
+}
+
+pub fn validate_on_calendar(value: &str) -> std::result::Result<(), &'static str> {
+    if value.contains('\n') || value.contains('\r') || value.contains('[') || value.contains(']') {
+        return Err("on_calendar must not contain newlines or [ ] characters");
+    }
+    if value.is_empty() {
+        return Err("on_calendar must not be empty");
+    }
+    Ok(())
 }
 
 impl ScheduleConfig {
     pub fn on_calendar_value(&self) -> String {
         if let Some(custom) = &self.on_calendar {
-            return custom.clone();
+            let safe = custom.replace(['\n', '\r', '[', ']'], "_");
+            return safe;
         }
         match self.frequency {
             ScheduleFrequency::Daily => "daily".into(),
@@ -88,9 +101,13 @@ impl ScheduleConfig {
     }
 
     pub fn systemd_service_content(&self, binary_path: &str) -> String {
+        let user = std::env::var("USER")
+            .or_else(|_| std::env::var("LOGNAME"))
+            .unwrap_or_else(|_| "root".into());
         format!(
-            "[Unit]\nDescription=sage-restic-manager backup job\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart={} backup --non-interactive\nStandardOutput=journal\nStandardError=journal\nUser=root\n",
-            binary_path
+            "[Unit]\nDescription=sage-restic-manager backup job\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart={} backup --non-interactive\nStandardOutput=journal\nStandardError=journal\nUser={}\n",
+            binary_path,
+            user
         )
     }
 }

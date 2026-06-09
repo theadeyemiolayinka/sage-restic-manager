@@ -1445,6 +1445,7 @@ dependencies = [
  "directories",
  "futures",
  "hex",
+ "libc",
  "once_cell",
  "ratatui",
  "regex",

@@ -5,6 +5,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, Result};
 use super::config_dir;
+use super::app::atomic_write_restricted;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourcesConfig {
@@ -41,7 +42,7 @@ impl SourcesConfig {
     pub fn save(&self) -> Result<()> {
         let path = Self::config_path()?;
         let content = toml::to_string_pretty(self).map_err(AppError::from)?;
-        std::fs::write(path, content)?;
+        atomic_write_restricted(&path, content.as_bytes())?;
         Ok(())
     }
 
@@ -49,10 +50,6 @@ impl SourcesConfig {
         self.docker_volumes_path
             .clone()
             .unwrap_or_else(|| PathBuf::from("/var/lib/docker/volumes"))
-    }
-
-    pub fn docker_path_available(&self) -> bool {
-        self.effective_docker_path().exists()
     }
 
     pub fn upsert(&mut self, source: BackupSource) {
@@ -91,29 +88,12 @@ impl SourcesConfig {
         self.sources.iter_mut().find(|s| &s.path == path)
     }
 
-    pub fn find_by_id_mut(&mut self, id: &Uuid) -> Option<&mut BackupSource> {
-        self.sources.iter_mut().find(|s| &s.id == id)
-    }
-
     pub fn children_of(&self, container_path: &PathBuf) -> Vec<&BackupSource> {
         self.sources.iter().filter(|s| {
             matches!(&s.kind, SourceKind::FlatPath { parent_container: Some(p) } if p == container_path)
         }).collect()
     }
 
-    pub fn containers(&self) -> Vec<&BackupSource> {
-        self.sources.iter().filter(|s| matches!(s.kind, SourceKind::Container { .. })).collect()
-    }
-
-    pub fn top_level_sources(&self) -> Vec<&BackupSource> {
-        self.sources.iter().filter(|s| {
-            match &s.kind {
-                SourceKind::Container { .. } => true,
-                SourceKind::FlatPath { parent_container: None } => true,
-                SourceKind::FlatPath { parent_container: Some(_) } => false,
-            }
-        }).collect()
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -128,7 +108,6 @@ pub struct BackupSource {
     pub last_backup: Option<DateTime<Utc>>,
     pub last_backup_status: Option<BackupStatus>,
     pub last_snapshot_id: Option<String>,
-    pub tags: Vec<String>,
     pub exclude_patterns: Vec<String>,
 }
 
@@ -145,7 +124,6 @@ impl BackupSource {
             last_backup: None,
             last_backup_status: None,
             last_snapshot_id: None,
-            tags: Vec::new(),
             exclude_patterns: Vec::new(),
         }
     }
@@ -171,19 +149,6 @@ impl BackupSource {
 
     pub fn is_container(&self) -> bool {
         matches!(self.kind, SourceKind::Container { .. })
-    }
-
-    pub fn is_docker_child(&self) -> bool {
-        matches!(&self.kind, SourceKind::FlatPath { parent_container: Some(p) } if {
-            p.to_string_lossy().contains("docker/volumes")
-        })
-    }
-
-    pub fn parent_path(&self) -> Option<&PathBuf> {
-        match &self.kind {
-            SourceKind::FlatPath { parent_container: Some(p) } => Some(p),
-            _ => None,
-        }
     }
 
     pub fn kind_label(&self) -> &'static str {
@@ -237,8 +202,6 @@ impl std::fmt::Display for SourceState {
 pub enum BackupStatus {
     Success,
     Failed,
-    Running,
-    Partial,
 }
 
 impl std::fmt::Display for BackupStatus {
@@ -246,8 +209,6 @@ impl std::fmt::Display for BackupStatus {
         match self {
             BackupStatus::Success => write!(f, "success"),
             BackupStatus::Failed => write!(f, "failed"),
-            BackupStatus::Running => write!(f, "running"),
-            BackupStatus::Partial => write!(f, "partial"),
         }
     }
 }
