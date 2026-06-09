@@ -1,0 +1,64 @@
+site_name: Sage Restic Manager
+site_description: Production-grade terminal backup management system for Restic on self-hosted servers
+site_url: https://theadeyemiolayinka.github.io/sage-restic-manager/
+repo_url: https://github.com/theadeyemiolayinka/sage-restic-manager
+repo_name: sage-restic-manager
+copyright: Copyright &copy; sage-restic-manager contributors
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: blue grey
+      accent: light blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+    - scheme: default
+      primary: blue grey
+      accent: light blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to dark mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/theadeyemiolayinka/sage-restic-manager
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - Usage: usage.md
+  - Docker Volumes: docker-volumes.md
+  - Scheduling: scheduling.md
+  - Security: security.md
+  - Troubleshooting: troubleshooting.md

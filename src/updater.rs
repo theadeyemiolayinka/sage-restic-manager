@@ -120,7 +120,7 @@ impl Updater {
             }
             info!("Checksum verified");
         } else {
-            warn!("No checksum asset found, skipping SHA256 verification");
+            return Err(AppError::Update("Release missing SHA256 checksum asset. Skipping update for security.".into()));
         }
 
         if let Some(sig_asset) = signature_asset {
@@ -144,7 +144,7 @@ impl Updater {
                 info!("Minisign signature verified");
             }
         } else {
-            warn!("No signature asset found, skipping minisign verification");
+            return Err(AppError::Update("Release missing minisign signature asset. Skipping update for security.".into()));
         }
 
         let current_exe = env::current_exe()
@@ -166,11 +166,14 @@ impl Updater {
             tokio::fs::set_permissions(&temp_path, perms).await?;
         }
 
-        tokio::fs::rename(&temp_path, &current_exe).await
-            .map_err(|e| {
-                let _ = std::fs::rename(&backup_path, &current_exe);
-                AppError::Update(format!("Failed to replace binary: {}", e))
-            })?;
+        if let Err(e) = tokio::fs::rename(&temp_path, &current_exe).await {
+            let rollback_err = tokio::fs::rename(&backup_path, &current_exe).await.err();
+            let msg = match rollback_err {
+                Some(re) => format!("Failed to replace binary: {}. Rollback also failed: {}", e, re),
+                None => format!("Failed to replace binary: {}. Rolled back to previous version.", e),
+            };
+            return Err(AppError::Update(msg));
+        }
 
         let _ = tokio::fs::remove_file(&backup_path).await;
         info!("Update complete. New version: {}", release.tag_name);

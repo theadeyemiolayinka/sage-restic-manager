@@ -74,11 +74,15 @@ impl Default for ScheduleConfig {
 }
 
 pub fn validate_on_calendar(value: &str) -> std::result::Result<(), &'static str> {
-    if value.contains('\n') || value.contains('\r') || value.contains('[') || value.contains(']') {
-        return Err("on_calendar must not contain newlines or [ ] characters");
-    }
     if value.is_empty() {
         return Err("on_calendar must not be empty");
+    }
+    for ch in value.chars() {
+        if !ch.is_ascii_alphanumeric()
+            && !" *:-,./".contains(ch)
+        {
+            return Err("on_calendar contains invalid characters");
+        }
     }
     Ok(())
 }
@@ -109,7 +113,8 @@ impl ScheduleConfig {
         timer
     }
 
-    pub fn systemd_service_content(&self, binary_path: &str) -> String {
+    pub fn systemd_service_content(&self, binary_path: &str) -> crate::error::Result<String> {
+        validate_systemd_binary_path(binary_path)?;
         let user = std::env::var("USER")
             .or_else(|_| std::env::var("LOGNAME"))
             .unwrap_or_else(|_| "root".into());
@@ -121,8 +126,19 @@ impl ScheduleConfig {
         if self.run_on_battery == Some(false) {
             service.push_str("ConditionACPower=true\n");
         }
-        service
+        Ok(service)
     }
+}
+
+fn validate_systemd_binary_path(path: &str) -> crate::error::Result<()> {
+    let p = std::path::Path::new(path);
+    if !p.is_absolute() {
+        return Err(crate::error::AppError::Config(format!("binary_path must be absolute: {}", path)));
+    }
+    if path.contains(' ') || path.contains(';') || path.contains('|') || path.contains('&') || path.contains('$') {
+        return Err(crate::error::AppError::Config(format!("binary_path contains unsafe characters: {}", path)));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

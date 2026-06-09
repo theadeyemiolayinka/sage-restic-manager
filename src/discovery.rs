@@ -18,10 +18,8 @@ pub enum DockerDiscoveryResult {
     },
 }
 
-#[allow(dead_code)]
 pub enum ContainerScanResult {
     Ok {
-        container_path: PathBuf,
         children: Vec<BackupSource>,
     },
     PathNotFound,
@@ -130,7 +128,6 @@ impl VolumeDiscovery {
         children.sort_by(|a, b| a.label.cmp(&b.label));
 
         ContainerScanResult::Ok {
-            container_path: container_path.clone(),
             children,
         }
     }

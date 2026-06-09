@@ -8,11 +8,21 @@ use super::app::atomic_write_restricted;
 const KEYRING_SERVICE: &str = "sage-restic-manager";
 const KEYRING_USER: &str = "credentials";
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct CredentialsConfig {
     pub access_key_id: String,
     pub secret_access_key: String,
     pub repository_password: String,
+}
+
+impl std::fmt::Debug for CredentialsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CredentialsConfig")
+            .field("access_key_id", &"<redacted>")
+            .field("secret_access_key", &"<redacted>")
+            .field("repository_password", &"<redacted>")
+            .finish()
+    }
 }
 
 impl CredentialsConfig {
@@ -23,7 +33,9 @@ impl CredentialsConfig {
     pub fn load() -> Result<Self> {
         match Self::load_from_keyring() {
             Ok(creds) => return Ok(creds),
-            Err(_) => {}
+            Err(e) => {
+                tracing::warn!("Keyring credential load failed ({}); falling back to plaintext file. Consider checking your OS secret service.", e);
+            }
         }
         let path = Self::config_path()?;
         if !path.exists() {
@@ -42,7 +54,9 @@ impl CredentialsConfig {
                 let _ = Self::remove_file_fallback();
                 return Ok(());
             }
-            Err(_) => {}
+            Err(e) => {
+                tracing::warn!("Keyring credential save failed ({}); falling back to plaintext file. Consider checking your OS secret service.", e);
+            }
         }
         self.save_to_file()
     }

@@ -154,7 +154,7 @@ impl ResticClient {
             Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
             _ => return false,
         };
-        crate::restic::types::ResticVersion::parse(&output).is_some()
+        output.trim().split_whitespace().next() == Some("restic")
     }
 
     pub async fn init(&self) -> Result<String> {

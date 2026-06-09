@@ -20,10 +20,14 @@ pub fn handle_key(state: &mut AppState, key: KeyEvent) -> bool {
         AppMode::BackupRunning { .. } => {
             if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
                 if let Some(pid) = state.backup_child_pid {
-                    #[cfg(unix)]
-                    unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM); }
-                    state.push_log(LogLevel::Warning, format!("Sent SIGTERM to backup process (pid {})", pid));
-                    state.set_status("Backup interrupt sent".into(), true);
+                    if pid != 0 {
+                        #[cfg(unix)]
+                        unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM); }
+                        state.push_log(LogLevel::Warning, format!("Sent SIGTERM to backup process (pid {})", pid));
+                        state.set_status("Backup interrupt sent".into(), true);
+                    } else {
+                        state.push_log(LogLevel::Warning, "Backup interrupt requested but pid is 0 (invalid)".into());
+                    }
                 } else {
                     state.push_log(LogLevel::Warning, "Backup interrupt requested but pid unknown".into());
                 }
@@ -226,7 +230,7 @@ fn rescan_current_container(state: &mut AppState) {
             tokio::spawn(async move {
                 use crate::discovery::{ContainerScanResult, VolumeDiscovery};
                 match VolumeDiscovery::scan_container_children(&path).await {
-                    ContainerScanResult::Ok { container_path: _, children } => {
+                    ContainerScanResult::Ok { children } => {
                         let _ = tx.send(crate::tui::event::Event::BackgroundTask(
                             BackgroundEvent::ContainerChildrenScanned { children },
                         ));
@@ -736,7 +740,7 @@ fn handle_logs_key(state: &mut AppState, key: KeyEvent) {
             let lines: Vec<String> = state.log_entries.iter()
                 .map(|e| format!("[{}] [{:?}] {}", e.timestamp.format("%Y-%m-%dT%H:%M:%SZ"), e.level, e.message))
                 .collect();
-            match std::fs::write(&export_path, lines.join("\n")) {
+            match crate::config::app::atomic_write_restricted(&export_path, lines.join("\n").as_bytes()) {
                 Ok(()) => state.set_status(format!("Logs exported to {}", export_path.display()), false),
                 Err(e) => state.set_status(format!("Export failed: {}", e), true),
             }
@@ -1079,7 +1083,7 @@ fn execute_input_action(state: &mut AppState, action: InputAction, value: String
                 tokio::spawn(async move {
                     use crate::discovery::{ContainerScanResult, VolumeDiscovery};
                     match VolumeDiscovery::scan_container_children(&path).await {
-                        ContainerScanResult::Ok { container_path: _, children } => {
+                        ContainerScanResult::Ok { children } => {
                             let _ = tx.send(crate::tui::event::Event::BackgroundTask(
                                 BackgroundEvent::ContainerChildrenScanned { children },
                             ));
@@ -1113,6 +1117,10 @@ fn execute_input_action(state: &mut AppState, action: InputAction, value: String
         }
         InputAction::SetBudgetTotal => {
             if let Ok(gb) = value.parse::<f64>() {
+                if !gb.is_finite() || gb <= 0.0 {
+                    state.set_status("Budget must be a positive finite number".into(), true);
+                    return;
+                }
                 state.config.budget.total_bytes = (gb * 1024.0 * 1024.0 * 1024.0) as u64;
                 let _ = state.config.save();
                 state.set_status(format!("Budget set to {:.1} GB", gb), false);
@@ -1122,6 +1130,10 @@ fn execute_input_action(state: &mut AppState, action: InputAction, value: String
         }
         InputAction::SetBudgetWarning => {
             if let Ok(gb) = value.parse::<f64>() {
+                if !gb.is_finite() || gb <= 0.0 {
+                    state.set_status("Warning threshold must be a positive finite number".into(), true);
+                    return;
+                }
                 state.config.budget.warning_bytes = (gb * 1024.0 * 1024.0 * 1024.0) as u64;
                 let _ = state.config.save();
                 state.set_status(format!("Warning threshold set to {:.1} GB", gb), false);
@@ -1131,6 +1143,10 @@ fn execute_input_action(state: &mut AppState, action: InputAction, value: String
         }
         InputAction::SetBudgetCritical => {
             if let Ok(gb) = value.parse::<f64>() {
+                if !gb.is_finite() || gb <= 0.0 {
+                    state.set_status("Critical threshold must be a positive finite number".into(), true);
+                    return;
+                }
                 state.config.budget.critical_bytes = (gb * 1024.0 * 1024.0 * 1024.0) as u64;
                 let _ = state.config.save();
                 state.set_status(format!("Critical threshold set to {:.1} GB", gb), false);

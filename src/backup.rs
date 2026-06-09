@@ -19,16 +19,21 @@ pub async fn run_backup(config: &AppConfig, creds: &CredentialsConfig, sources: 
         info!("  - {}", path.display());
     }
 
+    let client = ResticClient::new_with_creds(config, creds);
+
+    if !client.is_available().await {
+        for source in sources.sources.iter_mut() {
+            if source.state == SourceState::Selected {
+                source.last_backup_status = Some(BackupStatus::Failed);
+            }
+        }
+        return Err(AppError::ResticNotFound);
+    }
+
     for source in sources.sources.iter_mut() {
         if source.state == SourceState::Selected {
             source.last_backup_status = Some(BackupStatus::Running);
         }
-    }
-
-    let client = ResticClient::new_with_creds(config, creds);
-
-    if !client.is_available().await {
-        return Err(AppError::ResticNotFound);
     }
 
     let mut tags = vec!["sage-restic-manager".to_string()];

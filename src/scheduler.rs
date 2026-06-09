@@ -11,7 +11,7 @@ pub struct SystemdScheduler;
 
 impl SystemdScheduler {
     pub async fn install(schedule: &ScheduleConfig, binary_path: &str) -> Result<()> {
-        let service_content = schedule.systemd_service_content(binary_path);
+        let service_content = schedule.systemd_service_content(binary_path)?;
         let timer_content = schedule.systemd_timer_content(binary_path);
 
         let service_path = format!("{}/{}.service", SYSTEMD_USER_DIR, SERVICE_NAME);
