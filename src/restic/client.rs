@@ -28,6 +28,7 @@ fn validate_binary(binary: &str) -> Result<()> {
 }
 
 impl ResticClient {
+    #[allow(dead_code)]
     pub fn new(config: &AppConfig) -> Self {
         let creds = CredentialsConfig::load().unwrap_or_default();
         Self::new_with_creds(config, &creds)
@@ -54,21 +55,11 @@ impl ResticClient {
 
     fn write_backend_cred_file(&self) -> Result<Option<tempfile::NamedTempFile>> {
         use std::os::unix::fs::PermissionsExt;
-        let has_b2 = self.backend_env.iter().any(|(k, _)| k == "B2_ACCOUNT_ID");
         let has_s3 = self.backend_env.iter().any(|(k, _)| k == "AWS_ACCESS_KEY_ID");
         if has_s3 {
             let key_id = self.backend_env.iter().find(|(k, _)| k == "AWS_ACCESS_KEY_ID").map(|(_, v)| v.as_str()).unwrap_or("");
             let secret = self.backend_env.iter().find(|(k, _)| k == "AWS_SECRET_ACCESS_KEY").map(|(_, v)| v.as_str()).unwrap_or("");
             let content = format!("[default]\naws_access_key_id={}\naws_secret_access_key={}\n", key_id, secret);
-            let tmp = tempfile::NamedTempFile::new()?;
-            std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600))?;
-            std::fs::write(tmp.path(), content.as_bytes())?;
-            return Ok(Some(tmp));
-        }
-        if has_b2 {
-            let account_id = self.backend_env.iter().find(|(k, _)| k == "B2_ACCOUNT_ID").map(|(_, v)| v.as_str()).unwrap_or("");
-            let account_key = self.backend_env.iter().find(|(k, _)| k == "B2_ACCOUNT_KEY").map(|(_, v)| v.as_str()).unwrap_or("");
-            let content = format!("{}:{}", account_id, account_key);
             let tmp = tempfile::NamedTempFile::new()?;
             std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(0o600))?;
             std::fs::write(tmp.path(), content.as_bytes())?;
@@ -88,8 +79,11 @@ impl ResticClient {
                 cmd.env("AWS_ENDPOINT_URL_S3", ep);
             }
         } else if has_b2 {
-            if let Some(f) = cred_file {
-                cmd.env("B2_ACCOUNT_CREDENTIALS_FILE", f.path());
+            if let Some((_, id)) = backend_env.iter().find(|(k, _)| k == "B2_ACCOUNT_ID") {
+                cmd.env("B2_ACCOUNT_ID", id);
+            }
+            if let Some((_, key)) = backend_env.iter().find(|(k, _)| k == "B2_ACCOUNT_KEY") {
+                cmd.env("B2_ACCOUNT_KEY", key);
             }
         }
     }
@@ -101,7 +95,7 @@ impl ResticClient {
     ) -> Command {
         let mut cmd = Command::new(&self.binary);
         cmd.env_clear();
-        cmd.env("PATH", std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".into()));
+        Self::preserve_essential_env(&mut cmd);
         cmd.arg("--repo").arg(&self.repository);
         cmd.arg("--password-file").arg(pass_file.path());
         cmd.arg("--json");
@@ -118,13 +112,22 @@ impl ResticClient {
     ) -> Command {
         let mut cmd = Command::new(&self.binary);
         cmd.env_clear();
-        cmd.env("PATH", std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".into()));
+        Self::preserve_essential_env(&mut cmd);
         cmd.arg("--repo").arg(&self.repository);
         cmd.arg("--password-file").arg(pass_file.path());
         Self::apply_backend_cred_env(&mut cmd, &self.backend_env, cred_file);
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
         cmd
+    }
+
+    fn preserve_essential_env(cmd: &mut Command) {
+        cmd.env("PATH", std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".into()));
+        for var in ["HOME", "TMPDIR", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "USER"] {
+            if let Ok(v) = std::env::var(var) {
+                cmd.env(var, v);
+            }
+        }
     }
 
     fn base_command(&self) -> Result<(Command, tempfile::NamedTempFile, Option<tempfile::NamedTempFile>)> {
@@ -144,11 +147,14 @@ impl ResticClient {
     }
 
     pub async fn is_available(&self) -> bool {
-        Command::new(&self.binary)
-            .arg("version")
-            .output()
-            .await
-            .is_ok()
+        if validate_binary(&self.binary).is_err() {
+            return false;
+        }
+        let output = match Command::new(&self.binary).arg("version").output().await {
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).to_string(),
+            _ => return false,
+        };
+        crate::restic::types::ResticVersion::parse(&output).is_some()
     }
 
     pub async fn init(&self) -> Result<String> {

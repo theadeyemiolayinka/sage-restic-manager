@@ -109,6 +109,7 @@ pub struct BackupSource {
     pub last_backup_status: Option<BackupStatus>,
     pub last_snapshot_id: Option<String>,
     pub exclude_patterns: Vec<String>,
+    pub tags: Vec<String>,
 }
 
 impl BackupSource {
@@ -125,6 +126,7 @@ impl BackupSource {
             last_backup_status: None,
             last_snapshot_id: None,
             exclude_patterns: Vec::new(),
+            tags: Vec::new(),
         }
     }
 
@@ -200,14 +202,18 @@ impl std::fmt::Display for SourceState {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum BackupStatus {
+    Running,
     Success,
+    Partial,
     Failed,
 }
 
 impl std::fmt::Display for BackupStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            BackupStatus::Running => write!(f, "running"),
             BackupStatus::Success => write!(f, "success"),
+            BackupStatus::Partial => write!(f, "partial"),
             BackupStatus::Failed => write!(f, "failed"),
         }
     }

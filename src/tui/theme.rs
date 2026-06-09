@@ -71,10 +71,6 @@ impl Theme {
         Style::default().fg(Color::White).bg(Color::Rgb(30, 40, 60))
     }
 
-    pub fn input_normal() -> Style {
-        Style::default().fg(Color::Rgb(180, 180, 180)).bg(Color::Rgb(20, 25, 40))
-    }
-
     pub fn state_selected() -> Style {
         Style::default().fg(Color::Rgb(80, 200, 120)).add_modifier(Modifier::BOLD)
     }
@@ -87,7 +83,4 @@ impl Theme {
         Style::default().fg(Color::Rgb(120, 120, 120))
     }
 
-    pub fn highlight_bar() -> Style {
-        Style::default().bg(Color::Rgb(20, 30, 50))
-    }
 }

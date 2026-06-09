@@ -157,9 +157,18 @@ fn render_source_list(frame: &mut Frame, area: Rect, state: &AppState, inside_co
             Span::raw("")
         };
 
+        let tag_str = if source.tags.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", source.tags.join(","))
+        };
         let label = Span::styled(
-            format!("{:<38}", source.label),
+            format!("{:<30}", source.label),
             label_style,
+        );
+        let tags_span = Span::styled(
+            format!("{:<14}", tag_str),
+            Theme::dim(),
         );
 
         let size = Span::styled(
@@ -184,6 +193,7 @@ fn render_source_list(frame: &mut Frame, area: Rect, state: &AppState, inside_co
             state_indicator,
             kind_col,
             label,
+            tags_span,
             expand_hint,
             size,
             last_backup,
@@ -258,7 +268,9 @@ fn render_source_hints(frame: &mut Frame, area: Rect, state: &AppState, inside_c
                 Span::styled("D", Theme::header()),
                 Span::styled(": set docker path  ", Theme::dim()),
                 Span::styled("s", Theme::header()),
-                Span::styled(": save", Theme::dim()),
+                Span::styled(": save  ", Theme::dim()),
+                Span::styled("t", Theme::header()),
+                Span::styled(": set tags", Theme::dim()),
             ]),
             {
                 let selected = state.sources_config.sources.iter()

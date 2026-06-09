@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["sage-restic-manager contributors"]
 description = "Production-grade terminal backup management system for Restic on self-hosted servers"
 license = "MIT"
-repository = "https://github.com/your-org/sage-restic-manager"
+repository = "https://github.com/theadeyemiolayinka/sage-restic-manager"
 keywords = ["restic", "backup", "tui", "docker", "s3"]
 categories = ["command-line-utilities"]
 
@@ -40,6 +40,8 @@ futures = "0.3"
 async-trait = "0.1"
 tempfile = "3"
 libc = "0.2"
+keyring = "3"
+minisign-verify = "0.2"
 
 [profile.release]
 opt-level = 3

@@ -89,6 +89,7 @@ pub enum InputAction {
     EditScheduleCalendar,
     SetRestoreTargetPath,
     SetRestoreSourcePath,
+    SetSourceTags,
 }
 
 pub struct LogEntry {
@@ -125,7 +126,6 @@ pub struct AppState {
     pub mode: AppMode,
     pub should_quit: bool,
 
-    pub sources_list_offset: usize,
     pub sources_selected_index: usize,
     pub sources_search: String,
     pub sources_search_active: bool,
@@ -134,7 +134,6 @@ pub struct AppState {
 
     pub snapshots: Vec<Snapshot>,
     pub snapshots_selected_index: usize,
-    pub snapshots_offset: usize,
 
     pub restore_target_input: String,
     pub restore_path_input: String,
@@ -157,6 +156,7 @@ pub struct AppState {
     pub background_tx: Option<mpsc::UnboundedSender<crate::tui::event::Event>>,
     pub backup_child_pid: Option<u32>,
     pub credentials: CredentialsConfig,
+    pub storage_history: crate::config::StorageHistory,
 }
 
 impl AppState {
@@ -172,7 +172,6 @@ impl AppState {
             current_screen: Screen::Dashboard,
             mode: AppMode::Normal,
             should_quit: false,
-            sources_list_offset: 0,
             sources_selected_index: 0,
             sources_search: String::new(),
             sources_search_active: false,
@@ -180,7 +179,6 @@ impl AppState {
             docker_path_missing: None,
             snapshots: Vec::new(),
             snapshots_selected_index: 0,
-            snapshots_offset: 0,
             restore_target_input: String::new(),
             restore_path_input: String::new(),
             repo_stats: None,
@@ -196,6 +194,7 @@ impl AppState {
             background_tx: None,
             backup_child_pid: None,
             credentials: CredentialsConfig::load().unwrap_or_default(),
+            storage_history: crate::config::StorageHistory::load().unwrap_or_default(),
         }
     }
 
@@ -317,7 +316,7 @@ impl AppState {
                     true,
                 );
             }
-            BackgroundEvent::ContainerChildrenScanned { container_path, children } => {
+            BackgroundEvent::ContainerChildrenScanned { children } => {
                 let mut added = 0usize;
                 for child in children {
                     let is_new = !self.sources_config.sources.iter().any(|s| s.path == child.path);
@@ -337,6 +336,8 @@ impl AppState {
             BackgroundEvent::StatsLoaded(stats) => {
                 self.last_stats_check = Some(Utc::now());
                 let size_str = stats.display_size();
+                self.storage_history.push(stats.total_size, stats.snapshots_count.unwrap_or(0));
+                let _ = self.storage_history.save();
                 self.repo_stats = Some(stats);
                 self.repo_reachable = Some(true);
                 self.push_log(LogLevel::Info, format!("Repository stats updated: {}", size_str));

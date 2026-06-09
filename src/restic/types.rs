@@ -73,3 +73,17 @@ pub struct ResticCheckResult {
     pub output: String,
 }
 
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct ResticVersion {
+    pub version: String,
+}
+
+impl ResticVersion {
+    pub fn parse(output: &str) -> Option<Self> {
+        let trimmed = output.trim();
+        let version_part = trimmed.split_whitespace().nth(1)?;
+        Some(Self { version: version_part.into() })
+    }
+}
+

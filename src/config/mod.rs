@@ -2,11 +2,13 @@ pub mod app;
 pub mod sources;
 pub mod schedules;
 pub mod credentials;
+pub mod storage;
 
 pub use app::{AppConfig, RetentionPolicy};
 pub use sources::{BackupSource, ContainerOrigin, SourceKind, SourceState, SourcesConfig};
 pub use schedules::{ScheduleConfig, ScheduleFrequency, SchedulesConfig};
 pub use credentials::CredentialsConfig;
+pub use storage::StorageHistory;
 
 use crate::error::{AppError, Result};
 use directories::ProjectDirs;

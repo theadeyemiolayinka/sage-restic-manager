@@ -13,7 +13,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 use cli::{Cli, Commands};
-use config::{AppConfig, SchedulesConfig, SourcesConfig};
+use config::{AppConfig, CredentialsConfig, SchedulesConfig, SourcesConfig};
 use error::Result;
 use config::set_config_dir_override;
 
@@ -39,6 +39,7 @@ async fn main() -> Result<()> {
     let config = AppConfig::load()?;
     let sources_config = SourcesConfig::load()?;
     let schedules_config = SchedulesConfig::load()?;
+    let creds = CredentialsConfig::load()?;
 
     match cli.command {
         None => {
@@ -49,11 +50,11 @@ async fn main() -> Result<()> {
         Some(Commands::Backup { non_interactive }) => {
             info!("Running backup (non-interactive: {})", non_interactive);
             let mut sources = sources_config;
-            backup::run_backup(&config, &mut sources).await?;
+            backup::run_backup(&config, &creds, &mut sources).await?;
         }
 
         Some(Commands::Check { read_data }) => {
-            let client = restic::ResticClient::new(&config);
+            let client = restic::ResticClient::new_with_creds(&config, &creds);
             let result = client.check(read_data).await?;
             if result.ok {
                 println!("Repository check passed.");
@@ -67,7 +68,7 @@ async fn main() -> Result<()> {
         }
 
         Some(Commands::Snapshots) => {
-            let client = restic::ResticClient::new(&config);
+            let client = restic::ResticClient::new_with_creds(&config, &creds);
             let snaps = client.snapshots().await?;
             println!("{} snapshots:", snaps.len());
             for snap in &snaps {
@@ -76,7 +77,7 @@ async fn main() -> Result<()> {
         }
 
         Some(Commands::Forget { dry_run, prune }) => {
-            let client = restic::ResticClient::new(&config);
+            let client = restic::ResticClient::new_with_creds(&config, &creds);
             let results = client.forget(&config.retention, dry_run).await?;
             for group in &results {
                 println!("Keep: {} snapshots, Remove: {} snapshots", group.keep.len(), group.remove.len());

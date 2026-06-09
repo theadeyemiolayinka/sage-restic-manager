@@ -17,9 +17,6 @@ pub enum AppError {
     #[error("Restic not found in PATH")]
     ResticNotFound,
 
-    #[error("Repository error: {0}")]
-    Repository(String),
-
     #[error("Network error: {0}")]
     Network(#[from] reqwest::Error),
 
@@ -29,11 +26,11 @@ pub enum AppError {
     #[error("Checksum mismatch: expected {expected}, got {actual}")]
     ChecksumMismatch { expected: String, actual: String },
 
+    #[error("Signature mismatch: expected {expected}, got {actual}")]
+    SignatureMismatch { expected: String, actual: String },
+
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
-
-    #[error("Operation cancelled")]
-    Cancelled,
 
     #[error("Semver parse error: {0}")]
     Semver(#[from] semver::Error),

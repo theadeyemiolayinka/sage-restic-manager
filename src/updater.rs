@@ -9,7 +9,9 @@ use tracing::{info, warn};
 use crate::config::app::UpdateChannel;
 use crate::error::{AppError, Result};
 
-const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/your-org/sage-restic-manager/releases";
+const GITHUB_API_RELEASES: &str = "https://api.github.com/repos/theadeyemiolayinka/sage-restic-manager/releases";
+
+const UPDATE_PUBKEY_BASE64: &str = "RWSxQ+/PikeAKyOTywICxG1kkgR/cHi7bRWqcDgBczCRO9bE9g3/ZCoJ";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +81,7 @@ impl Updater {
     pub async fn perform_update(&self, release: &GitHubRelease) -> Result<()> {
         let binary_name = self.platform_binary_name();
         let checksum_name = format!("{}.sha256", binary_name);
+        let signature_name = format!("{}.minisig", binary_name);
 
         let binary_asset = release.assets.iter()
             .find(|a| a.name == binary_name)
@@ -86,6 +89,9 @@ impl Updater {
 
         let checksum_asset = release.assets.iter()
             .find(|a| a.name == checksum_name);
+
+        let signature_asset = release.assets.iter()
+            .find(|a| a.name == signature_name);
 
         info!("Downloading {} ({})", binary_asset.name, bytesize::ByteSize(binary_asset.size).to_string_as(true));
 
@@ -114,7 +120,31 @@ impl Updater {
             }
             info!("Checksum verified");
         } else {
-            warn!("No checksum asset found, skipping verification");
+            warn!("No checksum asset found, skipping SHA256 verification");
+        }
+
+        if let Some(sig_asset) = signature_asset {
+            if UPDATE_PUBKEY_BASE64.starts_with("REPLACE") {
+                warn!("No minisign public key configured; skipping signature verification. Set UPDATE_PUBKEY_BASE64 in updater.rs.");
+            } else {
+                let sig_text = self.client
+                    .get(&sig_asset.browser_download_url)
+                    .send()
+                    .await?
+                    .text()
+                    .await?;
+                let pk = minisign_verify::PublicKey::from_base64(UPDATE_PUBKEY_BASE64)
+                    .map_err(|e| AppError::Update(format!("Invalid embedded public key: {}", e)))?;
+                let sig_tmp = tempfile::NamedTempFile::new()?;
+                tokio::fs::write(sig_tmp.path(), sig_text).await?;
+                let sig = minisign_verify::Signature::from_file(sig_tmp.path())
+                    .map_err(|e| AppError::Update(format!("Invalid signature file: {}", e)))?;
+                pk.verify(&bytes[..], &sig, false)
+                    .map_err(|e| AppError::SignatureMismatch { expected: "valid minisign signature".into(), actual: format!("verification failed: {}", e) })?;
+                info!("Minisign signature verified");
+            }
+        } else {
+            warn!("No signature asset found, skipping minisign verification");
         }
 
         let current_exe = env::current_exe()

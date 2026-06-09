@@ -1,11 +1,12 @@
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::config::{AppConfig, SourceState, SourcesConfig};
+use crate::config::{AppConfig, CredentialsConfig, SourceState, SourcesConfig};
+use crate::config::sources::BackupStatus;
 use crate::error::{AppError, Result};
 use crate::restic::{ProgressEvent, ResticClient};
 
-pub async fn run_backup(config: &AppConfig, sources: &mut SourcesConfig) -> Result<()> {
+pub async fn run_backup(config: &AppConfig, creds: &CredentialsConfig, sources: &mut SourcesConfig) -> Result<()> {
     let selected_paths = sources.selected_paths();
 
     if selected_paths.is_empty() {
@@ -18,13 +19,26 @@ pub async fn run_backup(config: &AppConfig, sources: &mut SourcesConfig) -> Resu
         info!("  - {}", path.display());
     }
 
-    let client = ResticClient::new(config);
+    for source in sources.sources.iter_mut() {
+        if source.state == SourceState::Selected {
+            source.last_backup_status = Some(BackupStatus::Running);
+        }
+    }
+
+    let client = ResticClient::new_with_creds(config, creds);
 
     if !client.is_available().await {
         return Err(AppError::ResticNotFound);
     }
 
-    let tags = vec!["sage-restic-manager".to_string()];
+    let mut tags = vec!["sage-restic-manager".to_string()];
+    for source in sources.selected_sources() {
+        for tag in &source.tags {
+            if !tags.contains(tag) {
+                tags.push(tag.clone());
+            }
+        }
+    }
     let exclude_patterns: Vec<String> = sources.selected_sources()
         .iter()
         .flat_map(|s| s.exclude_patterns.clone())

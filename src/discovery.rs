@@ -18,6 +18,7 @@ pub enum DockerDiscoveryResult {
     },
 }
 
+#[allow(dead_code)]
 pub enum ContainerScanResult {
     Ok {
         container_path: PathBuf,
@@ -134,37 +135,6 @@ impl VolumeDiscovery {
         }
     }
 
-    pub async fn add_flat_path(path: PathBuf) -> BackupSource {
-        let label = path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("path")
-            .to_string();
-        let size = directory_size(&path).await;
-        let mut source = BackupSource::new_flat_standalone(path, label);
-        source.size_bytes = size;
-        source
-    }
-
-    pub async fn add_container_path(path: PathBuf) -> BackupSource {
-        let label = path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("dir")
-            .to_string();
-        let mut source = BackupSource::new_container(
-            path,
-            label,
-            ContainerOrigin::CustomDirectory,
-        );
-        source
-    }
-
-    pub async fn refresh_sizes(sources: &mut Vec<BackupSource>) {
-        for source in sources.iter_mut() {
-            if source.path.exists() {
-                source.size_bytes = directory_size(&source.path).await;
-            }
-        }
-    }
 }
 
 pub async fn directory_size(path: &Path) -> Option<u64> {

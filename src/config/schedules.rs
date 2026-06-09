@@ -56,6 +56,8 @@ pub struct ScheduleConfig {
     pub enabled: bool,
     pub frequency: ScheduleFrequency,
     pub on_calendar: Option<String>,
+    pub run_after_boot_sec: Option<u64>,
+    pub run_on_battery: Option<bool>,
 }
 
 impl Default for ScheduleConfig {
@@ -65,6 +67,8 @@ impl Default for ScheduleConfig {
             enabled: false,
             frequency: ScheduleFrequency::TwiceWeekly,
             on_calendar: None,
+            run_after_boot_sec: None,
+            run_on_battery: None,
         }
     }
 }
@@ -93,22 +97,31 @@ impl ScheduleConfig {
         }
     }
 
-    pub fn systemd_timer_content(&self, binary_path: &str) -> String {
-        format!(
-            "[Unit]\nDescription=sage-restic-manager scheduled backup\nRequires=sage-restic-manager.service\n\n[Timer]\nOnCalendar={}\nPersistent=true\nRandomizedDelaySec=1800\n\n[Install]\nWantedBy=timers.target\n",
+    pub fn systemd_timer_content(&self, _binary_path: &str) -> String {
+        let mut timer = format!(
+            "[Unit]\nDescription=sage-restic-manager scheduled backup\nRequires=sage-restic-manager.service\n\n[Timer]\nOnCalendar={}\nPersistent=true\nRandomizedDelaySec=1800\n",
             self.on_calendar_value()
-        )
+        );
+        if let Some(secs) = self.run_after_boot_sec {
+            timer.push_str(&format!("OnBootSec={}s\n", secs));
+        }
+        timer.push_str("\n[Install]\nWantedBy=timers.target\n");
+        timer
     }
 
     pub fn systemd_service_content(&self, binary_path: &str) -> String {
         let user = std::env::var("USER")
             .or_else(|_| std::env::var("LOGNAME"))
             .unwrap_or_else(|_| "root".into());
-        format!(
+        let mut service = format!(
             "[Unit]\nDescription=sage-restic-manager backup job\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart={} backup --non-interactive\nStandardOutput=journal\nStandardError=journal\nUser={}\n",
             binary_path,
             user
-        )
+        );
+        if self.run_on_battery == Some(false) {
+            service.push_str("ConditionACPower=true\n");
+        }
+        service
     }
 }
 

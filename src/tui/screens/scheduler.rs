@@ -86,9 +86,6 @@ fn render_generated_units(frame: &mut Frame, area: Rect, state: &AppState) {
     let active = state.schedules_config.active_schedule();
     let calendar = active.map(|s| s.on_calendar_value()).unwrap_or_else(|| "Mon,Thu 02:00:00".into());
 
-    let service_preview = crate::scheduler::SystemdScheduler::generate_service_content(&binary_path);
-    let timer_preview = crate::scheduler::SystemdScheduler::generate_timer_content(&calendar);
-
     let block = Block::default()
         .title(Span::styled(" Generated Unit Preview ", Theme::title()))
         .borders(Borders::ALL)
@@ -104,7 +101,7 @@ fn render_generated_units(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(para, area);
 }
 
-fn render_scheduler_hints(frame: &mut Frame, area: Rect, state: &AppState) {
+fn render_scheduler_hints(frame: &mut Frame, area: Rect, _state: &AppState) {
     let block = Block::default()
         .title(Span::styled(" Actions ", Theme::title()))
         .borders(Borders::ALL)

@@ -167,8 +167,9 @@ fn render_trend(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let budget = &state.config.budget;
     let used = state.repo_stats.as_ref().map(|s| s.total_size).unwrap_or(0);
+    let history = &state.storage_history;
 
-    let thresholds = vec![
+    let mut lines = vec![
         Line::from(vec![
             Span::styled("  Budget:    ", Theme::dim()),
             Span::styled(
@@ -201,6 +202,29 @@ fn render_trend(frame: &mut Frame, area: Rect, state: &AppState) {
         ]),
     ];
 
-    let para = Paragraph::new(thresholds).block(block);
+    if let Some(rate) = history.growth_rate_bytes_per_day() {
+        let rate_str = bytesize::ByteSize(rate as u64).to_string_as(true);
+        lines.push(Line::from(vec![
+            Span::styled("  Growth:    ", Theme::dim()),
+            Span::styled(format!("{} / day", rate_str), Theme::normal()),
+        ]));
+    }
+
+    if budget.enabled {
+        if let Some(days) = history.days_until_budget(budget.total_bytes) {
+            let days_str = if days < 1.0 {
+                "budget exceeded".into()
+            } else {
+                format!("{:.0} days until budget", days)
+            };
+            let style = if days < 7.0 { Theme::danger() } else if days < 30.0 { Theme::warning() } else { Theme::success() };
+            lines.push(Line::from(vec![
+                Span::styled("  Forecast:  ", Theme::dim()),
+                Span::styled(days_str, style),
+            ]));
+        }
+    }
+
+    let para = Paragraph::new(lines).block(block);
     frame.render_widget(para, area);
 }

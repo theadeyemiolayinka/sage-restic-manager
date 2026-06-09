@@ -126,12 +126,6 @@ impl StorageBudget {
         self.critical_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
     }
 
-    pub fn usage_ratio(&self, used_bytes: u64) -> f64 {
-        if self.total_bytes == 0 {
-            return 0.0;
-        }
-        used_bytes as f64 / self.total_bytes as f64
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

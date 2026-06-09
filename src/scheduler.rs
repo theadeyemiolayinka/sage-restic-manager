@@ -78,24 +78,6 @@ impl SystemdScheduler {
         Some(value.to_string())
     }
 
-    pub fn generate_service_content(binary_path: &str) -> String {
-        let user = std::env::var("USER")
-            .or_else(|_| std::env::var("LOGNAME"))
-            .unwrap_or_else(|_| "root".into());
-        format!(
-            "[Unit]\nDescription=sage-restic-manager backup job\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart={} backup --non-interactive\nStandardOutput=journal\nStandardError=journal\nUser={}\n",
-            binary_path,
-            user
-        )
-    }
-
-    pub fn generate_timer_content(on_calendar: &str) -> String {
-        format!(
-            "[Unit]\nDescription=sage-restic-manager scheduled backup\nRequires={}.service\n\n[Timer]\nOnCalendar={}\nPersistent=true\nRandomizedDelaySec=1800\n\n[Install]\nWantedBy=timers.target\n",
-            SERVICE_NAME,
-            on_calendar
-        )
-    }
 }
 
 async fn systemctl_run(args: &[&str]) -> Result<()> {

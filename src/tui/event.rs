@@ -1,12 +1,12 @@
-use crossterm::event::{self, Event as CrosstermEvent, KeyEvent, MouseEvent};
+use crossterm::event::{self, Event as CrosstermEvent, KeyEvent};
 use std::time::Duration;
 use tokio::sync::{mpsc, watch};
 
 #[derive(Debug, Clone)]
 pub enum Event {
     Key(KeyEvent),
-    Mouse(MouseEvent),
-    Resize(u16, u16),
+    Mouse(()),
+    Resize((), ()),
     Tick,
     BackgroundTask(BackgroundEvent),
 }
@@ -21,7 +21,6 @@ pub enum BackgroundEvent {
         searched: std::path::PathBuf,
     },
     ContainerChildrenScanned {
-        container_path: std::path::PathBuf,
         children: Vec<crate::config::BackupSource>,
     },
     BackupProgress(crate::restic::ProgressEvent),
@@ -59,11 +58,11 @@ impl EventHandler {
                         Ok(CrosstermEvent::Key(key)) => {
                             let _ = tx_clone.send(Event::Key(key));
                         }
-                        Ok(CrosstermEvent::Mouse(mouse)) => {
-                            let _ = tx_clone.send(Event::Mouse(mouse));
+                        Ok(CrosstermEvent::Mouse(_mouse)) => {
+                            let _ = tx_clone.send(Event::Mouse(()));
                         }
-                        Ok(CrosstermEvent::Resize(w, h)) => {
-                            let _ = tx_clone.send(Event::Resize(w, h));
+                        Ok(CrosstermEvent::Resize(_w, _h)) => {
+                            let _ = tx_clone.send(Event::Resize((), ()));
                         }
                         _ => {}
                     }

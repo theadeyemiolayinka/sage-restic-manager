@@ -69,7 +69,7 @@ fn render_log_list(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_stateful_widget(list, area, &mut list_state);
 }
 
-fn render_log_hints(frame: &mut Frame, area: Rect, state: &AppState) {
+fn render_log_hints(frame: &mut Frame, area: Rect, _state: &AppState) {
     let hints = Paragraph::new(Line::from(vec![
         Span::styled("  g", Theme::header()),
         Span::styled(": scroll top  ", Theme::dim()),

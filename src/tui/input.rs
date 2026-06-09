@@ -11,10 +11,10 @@ use crate::tui::event::BackgroundEvent;
 pub fn handle_key(state: &mut AppState, key: KeyEvent) -> bool {
     match state.mode.clone() {
         AppMode::Normal => handle_normal(state, key),
-        AppMode::Confirm { prompt, confirm_word, mut input, action } => {
+        AppMode::Confirm { prompt, confirm_word, input, action } => {
             handle_confirm(state, key, prompt, confirm_word, input, action)
         }
-        AppMode::Input { prompt, mut input, action } => {
+        AppMode::Input { prompt, input, action } => {
             handle_input(state, key, prompt, input, action)
         }
         AppMode::BackupRunning { .. } => {
@@ -172,6 +172,19 @@ fn handle_sources_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char('b') if !inside_container => {
             trigger_backup(state);
         }
+        KeyCode::Char('t') => {
+            let filtered: Vec<_> = state.filtered_sources().iter().map(|s| s.path.clone()).collect();
+            if let Some(path) = filtered.get(state.sources_selected_index) {
+                let current_tags = state.sources_config.find_by_path_mut(path)
+                    .map(|s| s.tags.join(", "))
+                    .unwrap_or_default();
+                state.mode = AppMode::Input {
+                    prompt: "Enter tags (comma-separated):".into(),
+                    input: current_tags,
+                    action: InputAction::SetSourceTags,
+                };
+            }
+        }
         _ => {}
     }
 }
@@ -213,9 +226,9 @@ fn rescan_current_container(state: &mut AppState) {
             tokio::spawn(async move {
                 use crate::discovery::{ContainerScanResult, VolumeDiscovery};
                 match VolumeDiscovery::scan_container_children(&path).await {
-                    ContainerScanResult::Ok { container_path, children } => {
+                    ContainerScanResult::Ok { container_path: _, children } => {
                         let _ = tx.send(crate::tui::event::Event::BackgroundTask(
-                            BackgroundEvent::ContainerChildrenScanned { container_path, children },
+                            BackgroundEvent::ContainerChildrenScanned { children },
                         ));
                     }
                     ContainerScanResult::PermissionDenied => {
@@ -379,9 +392,10 @@ fn handle_snapshots_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char('f') => {
             if let Some(tx) = state.background_tx.clone() {
                 let config = state.config.clone();
+                let creds = state.credentials.clone();
                 state.set_status("Running forget dry-run...".into(), false);
                 tokio::spawn(async move {
-                    let client = crate::restic::ResticClient::new(&config);
+                    let client = crate::restic::ResticClient::new_with_creds(&config, &creds);
                     match client.forget(&config.retention, true).await {
                         Ok(results) => {
                             let kept: usize = results.iter().map(|r| r.keep.len()).sum();
@@ -414,8 +428,9 @@ fn handle_snapshots_key(state: &mut AppState, key: KeyEvent) {
 fn refresh_snapshots(state: &mut AppState) {
     if let Some(tx) = state.background_tx.clone() {
         let config = state.config.clone();
+        let creds = state.credentials.clone();
         tokio::spawn(async move {
-            let client = crate::restic::ResticClient::new(&config);
+            let client = crate::restic::ResticClient::new_with_creds(&config, &creds);
             match client.snapshots().await {
                 Ok(snaps) => {
                     let _ = tx.send(crate::tui::event::Event::BackgroundTask(
@@ -436,8 +451,9 @@ fn refresh_snapshots(state: &mut AppState) {
 fn refresh_stats(state: &mut AppState) {
     if let Some(tx) = state.background_tx.clone() {
         let config = state.config.clone();
+        let creds = state.credentials.clone();
         tokio::spawn(async move {
-            let client = crate::restic::ResticClient::new(&config);
+            let client = crate::restic::ResticClient::new_with_creds(&config, &creds);
             match client.stats().await {
                 Ok(stats) => {
                     let _ = tx.send(crate::tui::event::Event::BackgroundTask(
@@ -506,9 +522,10 @@ fn handle_repository_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char('i') => {
             if let Some(tx) = state.background_tx.clone() {
                 let config = state.config.clone();
+                let creds = state.credentials.clone();
                 state.set_status("Initialising repository...".into(), false);
                 tokio::spawn(async move {
-                    let client = crate::restic::ResticClient::new(&config);
+                    let client = crate::restic::ResticClient::new_with_creds(&config, &creds);
                     match client.init().await {
                         Ok(out) => {
                             let _ = tx.send(crate::tui::event::Event::BackgroundTask(
@@ -527,9 +544,10 @@ fn handle_repository_key(state: &mut AppState, key: KeyEvent) {
         KeyCode::Char('c') => {
             if let Some(tx) = state.background_tx.clone() {
                 let config = state.config.clone();
+                let creds = state.credentials.clone();
                 state.set_status("Checking repository...".into(), false);
                 tokio::spawn(async move {
-                    let client = crate::restic::ResticClient::new(&config);
+                    let client = crate::restic::ResticClient::new_with_creds(&config, &creds);
                     match client.check(false).await {
                         Ok(result) => {
                             let msg = if result.ok {
@@ -783,20 +801,33 @@ fn trigger_backup(state: &mut AppState) {
         state.set_status("No sources selected. Go to Sources and approve/select paths first.".into(), true);
         return;
     }
+    for source in state.sources_config.sources.iter_mut() {
+        if source.state == crate::config::sources::SourceState::Selected {
+            source.last_backup_status = Some(crate::config::sources::BackupStatus::Running);
+        }
+    }
     if let Some(tx) = state.background_tx.clone() {
         let config = state.config.clone();
+        let creds = state.credentials.clone();
         let sources = state.sources_config.clone();
         state.mode = AppMode::BackupRunning { progress: "Starting...".into() };
         state.set_status(format!("Backup started ({} sources)", selected.len()), false);
         tokio::spawn(async move {
-            let client = crate::restic::ResticClient::new(&config);
+            let client = crate::restic::ResticClient::new_with_creds(&config, &creds);
             if !client.is_available().await {
                 let _ = tx.send(crate::tui::event::Event::BackgroundTask(
                     BackgroundEvent::Error("restic binary not found".into()),
                 ));
                 return;
             }
-            let tags = vec!["sage-restic-manager".to_string()];
+            let mut tags = vec!["sage-restic-manager".to_string()];
+            for source in sources.selected_sources() {
+                for tag in &source.tags {
+                    if !tags.contains(tag) {
+                        tags.push(tag.clone());
+                    }
+                }
+            }
             let exclude_patterns: Vec<String> = sources.selected_sources()
                 .iter()
                 .flat_map(|s| s.exclude_patterns.clone())
@@ -863,10 +894,11 @@ fn execute_confirm_action(state: &mut AppState, action: ConfirmAction) {
         ConfirmAction::Prune => {
             if let Some(tx) = state.background_tx.clone() {
                 let config = state.config.clone();
+                let creds = state.credentials.clone();
                 state.push_log(LogLevel::Info, "Prune started".into());
                 state.set_status("Pruning...".into(), false);
                 tokio::spawn(async move {
-                    let client = crate::restic::ResticClient::new(&config);
+                    let client = crate::restic::ResticClient::new_with_creds(&config, &creds);
                     match client.prune().await {
                         Ok(out) => {
                             let _ = tx.send(crate::tui::event::Event::BackgroundTask(
@@ -902,10 +934,11 @@ fn execute_confirm_action(state: &mut AppState, action: ConfirmAction) {
             }
             if let Some(tx) = state.background_tx.clone() {
                 let config = state.config.clone();
+                let creds = state.credentials.clone();
                 state.push_log(LogLevel::Info, format!("Restoring snapshot {} to {}", snap.short_id, target));
                 state.set_status("Restoring...".into(), false);
                 tokio::spawn(async move {
-                    let client = crate::restic::ResticClient::new(&config);
+                    let client = crate::restic::ResticClient::new_with_creds(&config, &creds);
                     let restore_target = crate::restic::RestoreTarget {
                         snapshot_id: snap.id.clone(),
                         source_path: source,
@@ -929,10 +962,11 @@ fn execute_confirm_action(state: &mut AppState, action: ConfirmAction) {
         ConfirmAction::ForgetWithPrune => {
             if let Some(tx) = state.background_tx.clone() {
                 let config = state.config.clone();
+                let creds = state.credentials.clone();
                 state.push_log(LogLevel::Info, "Forget+prune started".into());
                 state.set_status("Running forget + prune...".into(), false);
                 tokio::spawn(async move {
-                    let client = crate::restic::ResticClient::new(&config);
+                    let client = crate::restic::ResticClient::new_with_creds(&config, &creds);
                     match client.forget(&config.retention, false).await {
                         Ok(results) => {
                             let kept: usize = results.iter().map(|r| r.keep.len()).sum();
@@ -1045,9 +1079,9 @@ fn execute_input_action(state: &mut AppState, action: InputAction, value: String
                 tokio::spawn(async move {
                     use crate::discovery::{ContainerScanResult, VolumeDiscovery};
                     match VolumeDiscovery::scan_container_children(&path).await {
-                        ContainerScanResult::Ok { container_path, children } => {
+                        ContainerScanResult::Ok { container_path: _, children } => {
                             let _ = tx.send(crate::tui::event::Event::BackgroundTask(
-                                BackgroundEvent::ContainerChildrenScanned { container_path, children },
+                                BackgroundEvent::ContainerChildrenScanned { children },
                             ));
                         }
                         _ => {}
@@ -1134,6 +1168,25 @@ fn execute_input_action(state: &mut AppState, action: InputAction, value: String
                 state.set_status(format!("Restore source path set to: {}", value), false);
             }
         }
-        _ => {}
+        InputAction::SetSourceTags => {
+            let filtered: Vec<_> = state.filtered_sources().iter().map(|s| s.path.clone()).collect();
+            if let Some(path) = filtered.get(state.sources_selected_index) {
+                let tag_list: Vec<String> = value
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                let label = if let Some(source) = state.sources_config.find_by_path_mut(path) {
+                    source.tags = tag_list.clone();
+                    Some(source.label.clone())
+                } else {
+                    None
+                };
+                if let Some(label) = label {
+                    let _ = state.sources_config.save();
+                    state.set_status(format!("Tags for {}: {}", label, tag_list.join(", ")), false);
+                }
+            }
+        }
     }
 }

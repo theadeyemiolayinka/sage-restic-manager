@@ -36,7 +36,7 @@ pub fn render_settings(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_settings_list(frame: &mut Frame, area: Rect, state: &AppState) {
-    let items: Vec<ListItem> = SETTINGS_ITEMS.iter().enumerate().map(|(i, name)| {
+    let items: Vec<ListItem> = SETTINGS_ITEMS.iter().enumerate().map(|(_i, name)| {
         ListItem::new(Line::from(vec![
             Span::raw("  "),
             Span::styled(*name, Theme::normal()),

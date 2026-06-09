@@ -121,7 +121,7 @@ fn render_restore_preview(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(para, area);
 }
 
-fn render_restore_hints(frame: &mut Frame, area: Rect, state: &AppState) {
+fn render_restore_hints(frame: &mut Frame, area: Rect, _state: &AppState) {
     let block = Block::default()
         .title(Span::styled(" Actions ", Theme::title()))
         .borders(Borders::ALL)

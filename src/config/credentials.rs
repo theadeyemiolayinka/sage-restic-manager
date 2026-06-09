@@ -5,6 +5,9 @@ use crate::error::{AppError, Result};
 use super::config_dir;
 use super::app::atomic_write_restricted;
 
+const KEYRING_SERVICE: &str = "sage-restic-manager";
+const KEYRING_USER: &str = "credentials";
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CredentialsConfig {
     pub access_key_id: String,
@@ -18,6 +21,10 @@ impl CredentialsConfig {
     }
 
     pub fn load() -> Result<Self> {
+        match Self::load_from_keyring() {
+            Ok(creds) => return Ok(creds),
+            Err(_) => {}
+        }
         let path = Self::config_path()?;
         if !path.exists() {
             let default = Self::default();
@@ -30,9 +37,48 @@ impl CredentialsConfig {
     }
 
     pub fn save(&self) -> Result<()> {
+        match self.save_to_keyring() {
+            Ok(()) => {
+                let _ = Self::remove_file_fallback();
+                return Ok(());
+            }
+            Err(_) => {}
+        }
+        self.save_to_file()
+    }
+
+    fn load_from_keyring() -> Result<Self> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+            .map_err(|e| AppError::Config(format!("keyring entry creation failed: {}", e)))?;
+        let json = entry.get_password()
+            .map_err(|e| AppError::Config(format!("keyring get_password failed: {}", e)))?;
+        let creds: Self = serde_json::from_str(&json)
+            .map_err(|e| AppError::Config(format!("keyring credential parse failed: {}", e)))?;
+        Ok(creds)
+    }
+
+    fn save_to_keyring(&self) -> Result<()> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+            .map_err(|e| AppError::Config(format!("keyring entry creation failed: {}", e)))?;
+        let json = serde_json::to_string(self)
+            .map_err(|e| AppError::Config(format!("credential serialization failed: {}", e)))?;
+        entry.set_password(&json)
+            .map_err(|e| AppError::Config(format!("keyring set_password failed: {}", e)))?;
+        Ok(())
+    }
+
+    fn save_to_file(&self) -> Result<()> {
         let path = Self::config_path()?;
         let content = toml::to_string_pretty(self).map_err(AppError::from)?;
         atomic_write_restricted(&path, content.as_bytes())?;
+        Ok(())
+    }
+
+    fn remove_file_fallback() -> Result<()> {
+        let path = Self::config_path()?;
+        if path.exists() {
+            std::fs::remove_file(&path).map_err(AppError::from)?;
+        }
         Ok(())
     }
 }

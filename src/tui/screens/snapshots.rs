@@ -51,14 +51,6 @@ fn render_snapshot_list(frame: &mut Frame, area: Rect, state: &AppState) {
         .borders(Borders::ALL)
         .border_style(Theme::border());
 
-    let header = Paragraph::new(Line::from(vec![
-        Span::raw("  "),
-        Span::styled(format!("{:<12}", "ID"), Theme::header()),
-        Span::styled(format!("{:<18}", "Time"), Theme::header()),
-        Span::styled(format!("{:<20}", "Host"), Theme::header()),
-        Span::styled("Paths", Theme::header()),
-    ]));
-
     if snapshots.is_empty() {
         let empty = Paragraph::new(vec![
             Line::from(""),
@@ -103,7 +95,7 @@ fn render_snapshot_list(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_stateful_widget(list, inner_chunks[1], &mut list_state);
 }
 
-fn render_snapshot_hints(frame: &mut Frame, area: Rect, state: &AppState) {
+fn render_snapshot_hints(frame: &mut Frame, area: Rect, _state: &AppState) {
     let hints = Paragraph::new(Line::from(vec![
         Span::styled("  r", Theme::header()),
         Span::styled(": refresh  ", Theme::dim()),
