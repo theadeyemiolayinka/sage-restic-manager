@@ -101,7 +101,7 @@ jobs:
             name=$(basename "$bin")
             cp "$bin" "release/${name}"
             sha256sum "release/${name}" > "release/${name}.sha256"
-            minisign -Sm "release/${name}" -s minisign.key -x "release/${name}.minisig"
+            echo "" | minisign -Sm "release/${name}" -s minisign.key -x "release/${name}.minisig"
             minisign -Vm "release/${name}" -p minisign.pub -x "release/${name}.minisig"
           done
           ls -la release/
