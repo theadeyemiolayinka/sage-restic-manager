@@ -149,15 +149,6 @@ fn render(frame: &mut Frame, app: &App) {
     }
 }
 
-fn screen_hint(screen: Screen) -> &'static str {
-    match screen {
-        Screen::Dashboard => "Tab: next screen  1-8: jump  q: quit",
-        Screen::Sources => "Enter: toggle  i: ignore  a: approve  /: search  +: add path  s: save",
-        Screen::Repository => "i: init  c: check  b: backup now  p: prune  r: refresh stats",
-        Screen::Snapshots => "Up/Down: navigate  r: refresh  R: go to restore",
-        Screen::Restore => "t: set target  p: set path  Enter: execute restore",
-        Screen::Scheduler => "e: enable  d: disable  i: install  f: frequency  c: custom calendar",
-        Screen::Logs => "Up/Down: scroll  g: top  G: bottom  c: clear  e: export",
-        Screen::Settings => "Up/Down: navigate  Enter: edit value",
-    }
+fn screen_hint(_screen: Screen) -> &'static str {
+    "Tab: next screen  1-8: jump  q: quit"
 }

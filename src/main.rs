@@ -108,7 +108,8 @@ async fn main() -> Result<()> {
                 }
                 DockerDiscoveryResult::PermissionDenied { path } => {
                     eprintln!("Permission denied: {}", path.display());
-                    eprintln!("Run as root or with sufficient permissions.");
+                    eprintln!("Add your user to the docker group: sudo usermod -aG docker $USER");
+                    eprintln!("Then log out and back in for the change to take effect.");
                     std::process::exit(1);
                 }
             }
@@ -165,6 +166,7 @@ async fn main() -> Result<()> {
             println!("Log directory: {}", log_dir.display());
             println!("Showing last {} lines via journalctl:", lines);
             let output = tokio::process::Command::new("journalctl")
+                .arg("--user")
                 .arg("-u")
                 .arg("sage-restic-manager")
                 .arg("-n")

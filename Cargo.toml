@@ -1,6 +1,6 @@
 [package]
 name = "sage-restic-manager"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["sage-restic-manager contributors"]
 description = "Production-grade terminal backup management system for Restic on self-hosted servers"

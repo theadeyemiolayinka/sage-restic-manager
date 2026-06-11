@@ -82,14 +82,26 @@ Then update `docker_volumes_path` in `sources.toml` or via the TUI.
 
 **Symptom:** "Permission denied reading Docker volumes path."
 
-**Solution:** Add your user to the `docker` group or run with `sudo`:
+**Solution:** Add your user to the `docker` group. This is the preferred fix because systemd timers run as your user and cannot use `sudo`:
 
 ```bash
 sudo usermod -aG docker $USER
 # Log out and back in for the group change to take effect
 ```
 
-Alternatively, run the application with `sudo` for discovery, then drop privileges for normal operation.
+**Why not sudo?** You can run `sudo sage-restic-manager` for one-off discovery, but scheduled backups via systemd timers run under your own account and will fail with permission denied if your user cannot read the Docker volumes path. The `docker` group grants read access without requiring root.
+
+**Verify access:**
+
+```bash
+ls -la /var/lib/docker/volumes
+```
+
+If you still see "Permission denied" after joining the group and logging back in, your distribution may use a different Docker data root. Check it with:
+
+```bash
+docker info --format '{{ .DockerRootDir }}'
+```
 
 ### No Volumes Discovered
 

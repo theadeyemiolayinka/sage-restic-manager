@@ -79,7 +79,7 @@ Type=oneshot
 ExecStart=/usr/local/bin/sage-restic-manager backup --non-interactive
 StandardOutput=journal
 StandardError=journal
-User=ubuntu
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/snap/bin"
 ConditionACPower=true
 ```
 

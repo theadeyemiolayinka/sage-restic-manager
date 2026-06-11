@@ -46,6 +46,7 @@ pub fn render_status_bar(frame: &mut Frame, area: Rect, status: Option<&(String,
         Span::styled("  ", Theme::dim()),
         Span::styled(msg, style),
     ]))
+    .wrap(ratatui::widgets::Wrap { trim: true })
     .block(Block::default().borders(Borders::TOP).border_style(Theme::border()));
     frame.render_widget(paragraph, area);
 }
@@ -100,8 +101,9 @@ pub fn render_confirm_dialog(frame: &mut Frame, prompt: &str, confirm_word: &str
 
 pub fn render_input_dialog(frame: &mut Frame, prompt: &str, input: &str) {
     let size = frame.area();
-    let width = 60u16.min(size.width - 4);
-    let height = 7u16;
+    let width = 80u16.min(size.width.saturating_sub(4)).max(40);
+    let prompt_lines = (prompt.len() as u16 / (width.saturating_sub(2))).max(1) + 1;
+    let height = (prompt_lines + 8).min(size.height.saturating_sub(4));
     let x = (size.width.saturating_sub(width)) / 2;
     let y = (size.height.saturating_sub(height)) / 2;
     let area = Rect::new(x, y, width, height);
@@ -118,17 +120,27 @@ pub fn render_input_dialog(frame: &mut Frame, prompt: &str, input: &str) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
-        .constraints([Constraint::Length(1), Constraint::Length(3)])
+        .constraints([
+            Constraint::Length(prompt_lines),
+            Constraint::Length(1),
+            Constraint::Length(3),
+        ])
         .split(inner);
 
-    let prompt_widget = Paragraph::new(Line::from(Span::styled(prompt, Theme::normal())));
+    let prompt_widget = Paragraph::new(Text::from(vec![
+        Line::from(Span::styled(prompt, Theme::normal())),
+    ]))
+    .wrap(Wrap { trim: true });
     frame.render_widget(prompt_widget, chunks[0]);
+
+    let hint = Paragraph::new(Line::from(Span::styled("  Esc to cancel  |  Enter to confirm", Theme::dim())));
+    frame.render_widget(hint, chunks[1]);
 
     let input_widget = Paragraph::new(Line::from(vec![
         Span::styled(format!(" {}_", input), Theme::input_focused()),
     ]))
     .block(Block::default().borders(Borders::ALL).border_style(Theme::border_focused()));
-    frame.render_widget(input_widget, chunks[1]);
+    frame.render_widget(input_widget, chunks[2]);
 }
 
 pub fn render_loading_overlay(frame: &mut Frame, message: &str) {

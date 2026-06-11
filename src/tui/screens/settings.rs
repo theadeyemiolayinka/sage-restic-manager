@@ -8,7 +8,7 @@ use ratatui::{
 use crate::tui::app::AppState;
 use crate::tui::theme::Theme;
 
-const SETTINGS_ITEMS: &[&str] = &[
+pub const SETTINGS_ITEMS: &[&str] = &[
     "Repository URL",
     "Bucket",
     "Region",
@@ -101,7 +101,7 @@ fn render_settings_detail(frame: &mut Frame, area: Rect, state: &AppState) {
         Line::from(vec![
             Span::styled("  Press ", Theme::dim()),
             Span::styled("Enter", Theme::header()),
-            Span::styled(" to edit this value.", Theme::dim()),
+            Span::styled(" to edit (if supported). Others require editing config.toml.", Theme::dim()),
         ]),
     ];
 

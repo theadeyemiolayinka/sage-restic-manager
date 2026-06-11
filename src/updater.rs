@@ -184,8 +184,8 @@ impl Updater {
         let os = std::env::consts::OS;
         let arch = std::env::consts::ARCH;
         match (os, arch) {
-            ("linux", "x86_64") => "sage-restic-manager-x86_64-unknown-linux-musl".into(),
-            ("linux", "aarch64") => "sage-restic-manager-aarch64-unknown-linux-musl".into(),
+            ("linux", "x86_64") => "sage-restic-manager-x86_64-unknown-linux-gnu".into(),
+            ("linux", "aarch64") => "sage-restic-manager-aarch64-unknown-linux-gnu".into(),
             ("macos", "x86_64") => "sage-restic-manager-x86_64-apple-darwin".into(),
             ("macos", "aarch64") => "sage-restic-manager-aarch64-apple-darwin".into(),
             _ => format!("sage-restic-manager-{}-{}", arch, os),

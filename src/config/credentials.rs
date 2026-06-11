@@ -34,7 +34,10 @@ impl CredentialsConfig {
         match Self::load_from_keyring() {
             Ok(creds) => return Ok(creds),
             Err(e) => {
-                tracing::warn!("Keyring credential load failed ({}); falling back to plaintext file. Consider checking your OS secret service.", e);
+                let msg = e.to_string();
+                if !msg.to_lowercase().contains("not found") && !msg.to_lowercase().contains("no matching entry") {
+                    tracing::warn!("Keyring credential load failed ({}); falling back to plaintext file. Consider checking your OS secret service.", e);
+                }
             }
         }
         let path = Self::config_path()?;
@@ -55,7 +58,10 @@ impl CredentialsConfig {
                 return Ok(());
             }
             Err(e) => {
-                tracing::warn!("Keyring credential save failed ({}); falling back to plaintext file. Consider checking your OS secret service.", e);
+                let msg = e.to_string();
+                if !msg.to_lowercase().contains("not found") && !msg.to_lowercase().contains("no matching entry") {
+                    tracing::warn!("Keyring credential save failed ({}); falling back to plaintext file. Consider checking your OS secret service.", e);
+                }
             }
         }
         self.save_to_file()

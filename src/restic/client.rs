@@ -123,7 +123,12 @@ impl ResticClient {
 
     fn preserve_essential_env(cmd: &mut Command) {
         cmd.env("PATH", std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".into()));
-        for var in ["HOME", "TMPDIR", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "USER"] {
+        for var in ["HOME", "TMPDIR", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "USER", "SHELL", "LANG", "LC_ALL"] {
+            if let Ok(v) = std::env::var(var) {
+                cmd.env(var, v);
+            }
+        }
+        for var in ["SSH_AUTH_SOCK", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR"] {
             if let Ok(v) = std::env::var(var) {
                 cmd.env(var, v);
             }

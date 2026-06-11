@@ -255,22 +255,20 @@ fn render_source_hints(frame: &mut Frame, area: Rect, state: &AppState, inside_c
     } else {
         (
             Line::from(vec![
-                Span::styled("  Enter", Theme::header()),
-                Span::styled(": browse container / toggle  ", Theme::dim()),
+                Span::styled("  Enter/Space", Theme::header()),
+                Span::styled(": toggle  ", Theme::dim()),
+                Span::styled("a", Theme::header()),
+                Span::styled(": approve  ", Theme::dim()),
                 Span::styled("i", Theme::header()),
                 Span::styled(": ignore  ", Theme::dim()),
                 Span::styled("d", Theme::header()),
                 Span::styled(": discover  ", Theme::dim()),
-                Span::styled("+f", Theme::header()),
-                Span::styled(": add flat path  ", Theme::dim()),
-                Span::styled("+c", Theme::header()),
-                Span::styled(": add container  ", Theme::dim()),
-                Span::styled("D", Theme::header()),
-                Span::styled(": set docker path  ", Theme::dim()),
+                Span::styled("b", Theme::header()),
+                Span::styled(": backup  ", Theme::dim()),
+                Span::styled("+", Theme::header()),
+                Span::styled(": add  ", Theme::dim()),
                 Span::styled("s", Theme::header()),
-                Span::styled(": save  ", Theme::dim()),
-                Span::styled("t", Theme::header()),
-                Span::styled(": set tags", Theme::dim()),
+                Span::styled(": save", Theme::dim()),
             ]),
             {
                 let selected = state.sources_config.sources.iter()
@@ -281,14 +279,19 @@ fn render_source_hints(frame: &mut Frame, area: Rect, state: &AppState, inside_c
                     .count();
                 let total_size = state.sources_config.total_selected_bytes();
                 Line::from(vec![
-                    Span::styled("  Selected: ", Theme::dim()),
+                    Span::styled("  Flat ", Theme::dim()),
+                    Span::styled("[flat]", Theme::header()),
+                    Span::styled(" = entire directory as one backup. Container ", Theme::dim()),
+                    Span::styled("[dir]", Theme::header()),
+                    Span::styled(" = children managed individually.  ", Theme::dim()),
+                    Span::styled("Sel: ", Theme::dim()),
                     Span::styled(format!("{}", selected), Theme::success()),
-                    Span::styled("  Unapproved: ", Theme::dim()),
+                    Span::styled("  Unapp: ", Theme::dim()),
                     Span::styled(
                         format!("{}", unapproved),
                         if unapproved > 0 { Theme::warning() } else { Theme::dim() },
                     ),
-                    Span::styled("  Total selected size: ", Theme::dim()),
+                    Span::styled("  Size: ", Theme::dim()),
                     Span::styled(bytesize::ByteSize(total_size).to_string_as(true), Theme::normal()),
                 ])
             },

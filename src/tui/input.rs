@@ -49,7 +49,7 @@ fn handle_normal(state: &mut AppState, key: KeyEvent) -> bool {
     }
 
     match key.code {
-        KeyCode::Char('q') if state.current_screen == Screen::Dashboard => {
+        KeyCode::Char('q') => {
             state.should_quit = true;
             return true;
         }
@@ -126,7 +126,11 @@ fn handle_sources_key(state: &mut AppState, key: KeyEvent) {
             state.sources_search.clear();
         }
         KeyCode::Esc => {
-            if inside_container {
+            if state.sources_search_active {
+                state.sources_search_active = false;
+                state.sources_search.clear();
+                state.sources_selected_index = 0;
+            } else if inside_container {
                 state.expanded_container = None;
                 state.sources_selected_index = 0;
                 state.sources_search.clear();
@@ -168,7 +172,7 @@ fn handle_sources_key(state: &mut AppState, key: KeyEvent) {
         }
         KeyCode::Char('+') if !inside_container => {
             state.mode = AppMode::Input {
-                prompt: "Add path as: [f]lat (back up this path entirely) or [c]ontainer (browse children): Type 'f' or 'c':".into(),
+                prompt: "Type 'f' for flat path (back up entire directory) or 'c' for container (browse children):".into(),
                 input: String::new(),
                 action: InputAction::AddFlatPath,
             };
@@ -750,7 +754,7 @@ fn handle_logs_key(state: &mut AppState, key: KeyEvent) {
 }
 
 fn handle_settings_key(state: &mut AppState, key: KeyEvent) {
-    let items_len = 11;
+    let items_len = crate::tui::screens::settings::SETTINGS_ITEMS.len();
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             if state.settings_selected_index > 0 {
@@ -770,6 +774,8 @@ fn handle_settings_key(state: &mut AppState, key: KeyEvent) {
                     input: String::new(),
                     action,
                 };
+            } else {
+                state.set_status("This setting must be edited in config.toml directly.".into(), true);
             }
         }
         _ => {}
@@ -800,6 +806,10 @@ fn handle_dashboard_key(state: &mut AppState, key: KeyEvent) {
 }
 
 fn trigger_backup(state: &mut AppState) {
+    if state.backup_child_pid.is_some() {
+        state.set_status("Backup already in progress. Wait for it to complete.".into(), true);
+        return;
+    }
     let selected = state.sources_config.selected_paths();
     if selected.is_empty() {
         state.set_status("No sources selected. Go to Sources and approve/select paths first.".into(), true);
@@ -1019,8 +1029,11 @@ fn handle_input(
         }
         KeyCode::Enter => {
             let value = input.trim().to_string();
+            let prev_mode = state.mode.clone();
             execute_input_action(state, action, value);
-            state.mode = AppMode::Normal;
+            if prev_mode == state.mode {
+                state.mode = AppMode::Normal;
+            }
         }
         KeyCode::Char(c) => {
             input.push(c);

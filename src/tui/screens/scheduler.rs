@@ -110,7 +110,7 @@ fn render_scheduler_hints(frame: &mut Frame, area: Rect, _state: &AppState) {
     let lines = vec![
         Line::from(vec![
             Span::styled("  e", Theme::header()),
-            Span::styled(": enable timer (requires root)  ", Theme::dim()),
+            Span::styled(": enable timer  ", Theme::dim()),
             Span::styled("d", Theme::header()),
             Span::styled(": disable timer  ", Theme::dim()),
             Span::styled("i", Theme::header()),

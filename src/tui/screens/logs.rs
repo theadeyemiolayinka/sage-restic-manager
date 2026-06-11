@@ -22,7 +22,7 @@ pub fn render_logs(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_log_list(frame: &mut Frame, area: Rect, state: &AppState) {
-    let entries: Vec<&crate::tui::app::LogEntry> = state.log_entries.iter().collect();
+    let entries: Vec<&crate::tui::app::LogEntry> = state.log_entries.iter().rev().collect();
     let total = entries.len();
 
     let items: Vec<ListItem> = entries.iter().map(|entry| {
@@ -59,8 +59,7 @@ fn render_log_list(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let mut list_state = ListState::default();
     let select_idx = if total > 0 {
-        let offset = state.log_offset.min(total.saturating_sub(1));
-        Some(total.saturating_sub(1).saturating_sub(offset))
+        Some(state.log_offset.min(total.saturating_sub(1)))
     } else {
         None
     };
@@ -72,9 +71,9 @@ fn render_log_list(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_log_hints(frame: &mut Frame, area: Rect, _state: &AppState) {
     let hints = Paragraph::new(Line::from(vec![
         Span::styled("  g", Theme::header()),
-        Span::styled(": scroll top  ", Theme::dim()),
+        Span::styled(": newest  ", Theme::dim()),
         Span::styled("G", Theme::header()),
-        Span::styled(": scroll bottom  ", Theme::dim()),
+        Span::styled(": oldest  ", Theme::dim()),
         Span::styled("Up/Down", Theme::header()),
         Span::styled(": scroll  ", Theme::dim()),
         Span::styled("e", Theme::header()),

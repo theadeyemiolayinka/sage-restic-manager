@@ -5,7 +5,12 @@ use crate::config::ScheduleConfig;
 use crate::error::{AppError, Result};
 
 const SERVICE_NAME: &str = "sage-restic-manager";
-const SYSTEMD_USER_DIR: &str = "/etc/systemd/system";
+fn systemd_user_dir() -> std::path::PathBuf {
+    std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+        .join(".config/systemd/user")
+}
 
 pub struct SystemdScheduler;
 
@@ -14,8 +19,13 @@ impl SystemdScheduler {
         let service_content = schedule.systemd_service_content(binary_path)?;
         let timer_content = schedule.systemd_timer_content(binary_path);
 
-        let service_path = format!("{}/{}.service", SYSTEMD_USER_DIR, SERVICE_NAME);
-        let timer_path = format!("{}/{}.timer", SYSTEMD_USER_DIR, SERVICE_NAME);
+        let user_dir = systemd_user_dir();
+        tokio::fs::create_dir_all(&user_dir)
+            .await
+            .map_err(|e| AppError::PermissionDenied(format!("Cannot create systemd user dir: {}", e)))?;
+
+        let service_path = user_dir.join(format!("{}.service", SERVICE_NAME));
+        let timer_path = user_dir.join(format!("{}.timer", SERVICE_NAME));
 
         tokio::fs::write(&service_path, service_content)
             .await
@@ -26,7 +36,7 @@ impl SystemdScheduler {
             .map_err(|e| AppError::PermissionDenied(format!("Cannot write timer file: {}", e)))?;
 
         systemctl_run(&["daemon-reload"]).await?;
-        info!("Systemd units installed: {} and {}", service_path, timer_path);
+        info!("Systemd units installed: {} and {}", service_path.display(), timer_path.display());
         Ok(())
     }
 
@@ -44,6 +54,7 @@ impl SystemdScheduler {
 
     pub async fn status() -> Result<String> {
         let output = Command::new("systemctl")
+            .arg("--user")
             .arg("status")
             .arg(format!("{}.timer", SERVICE_NAME))
             .output()
@@ -53,6 +64,7 @@ impl SystemdScheduler {
 
     pub async fn is_active() -> bool {
         Command::new("systemctl")
+            .arg("--user")
             .arg("is-active")
             .arg("--quiet")
             .arg(format!("{}.timer", SERVICE_NAME))
@@ -64,6 +76,7 @@ impl SystemdScheduler {
 
     pub async fn next_trigger_time() -> Option<String> {
         let output = Command::new("systemctl")
+            .arg("--user")
             .arg("show")
             .arg(format!("{}.timer", SERVICE_NAME))
             .arg("--property=NextElapseUSecRealtime")
@@ -82,6 +95,7 @@ impl SystemdScheduler {
 
 async fn systemctl_run(args: &[&str]) -> Result<()> {
     let output = Command::new("systemctl")
+        .arg("--user")
         .args(args)
         .output()
         .await
@@ -94,7 +108,7 @@ async fn systemctl_run(args: &[&str]) -> Result<()> {
         if code == 1 && (stderr.contains("Access denied") || stderr.contains("not permitted")) {
             Err(AppError::PermissionDenied(format!("systemctl: {}", stderr)))
         } else {
-            Err(AppError::Config(format!("systemctl {} failed (exit {}): {}", args.join(" "), code, stderr)))
+            Err(AppError::Config(format!("systemctl --user {} failed (exit {}): {}", args.join(" "), code, stderr)))
         }
     }
 }

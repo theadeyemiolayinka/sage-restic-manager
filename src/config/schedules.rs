@@ -115,13 +115,11 @@ impl ScheduleConfig {
 
     pub fn systemd_service_content(&self, binary_path: &str) -> crate::error::Result<String> {
         validate_systemd_binary_path(binary_path)?;
-        let user = std::env::var("USER")
-            .or_else(|_| std::env::var("LOGNAME"))
-            .unwrap_or_else(|_| "root".into());
+        let path_env = std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin:/snap/bin".into());
         let mut service = format!(
-            "[Unit]\nDescription=sage-restic-manager backup job\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart={} backup --non-interactive\nStandardOutput=journal\nStandardError=journal\nUser={}\n",
+            "[Unit]\nDescription=sage-restic-manager backup job\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=oneshot\nExecStart={} backup --non-interactive\nStandardOutput=journal\nStandardError=journal\nEnvironment=\"PATH={}\"\n",
             binary_path,
-            user
+            path_env
         );
         if self.run_on_battery == Some(false) {
             service.push_str("ConditionACPower=true\n");
